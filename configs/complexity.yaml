@@ -1,0 +1,37 @@
+# Complexity scoring config — NVIDIA prompt-task-and-complexity-classifier parity.
+# prompt_complexity_score = sum(weight[d] * normalized_value[d]) over the 6 dimensions.
+#
+# Reference (NVIDIA model card):
+#   0.35*creativity + 0.25*reasoning + 0.15*constraints
+#   + 0.15*domain_knowledge + 0.05*contextual_knowledge + 0.05*few_shots
+
+# Weights applied to each (already-normalized) dimension. Must sum to 1.0.
+weights_map:
+  creativity_scope: 0.35
+  reasoning: 0.25
+  constraint_ct: 0.15
+  domain_knowledge: 0.15
+  contextual_knowledge: 0.05
+  number_of_few_shots: 0.05
+
+# Divisors normalize raw head outputs into a comparable range before weighting.
+# NVIDIA uses divisors for the count-like dimensions; the [0,1] heads use 1.0 (no-op).
+# constraint_ct / number_of_few_shots heads emit a normalized [0,1] already, but the
+# divisor stays configurable so we can match NVIDIA's exact scaling if we distill from them.
+divisor_map:
+  creativity_scope: 1.0
+  reasoning: 1.0
+  contextual_knowledge: 1.0
+  domain_knowledge: 1.0
+  constraint_ct: 1.0
+  number_of_few_shots: 1.0
+
+# Target sizes per head (output dimensionality). task_type = 11-way; rest are scalar regressions.
+target_sizes:
+  task_type: 11
+  creativity_scope: 1
+  reasoning: 1
+  contextual_knowledge: 1
+  domain_knowledge: 1
+  constraint_ct: 1
+  number_of_few_shots: 1

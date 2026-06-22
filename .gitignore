@@ -3,3 +3,16 @@ node_modules/
 *.log
 dist/
 build/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+runs/
+timeline.html
+timeline.pdf
+.claude/
+.agents/
+.codex/
+
+# data
+/data/

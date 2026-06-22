@@ -1,0 +1,48 @@
+# Label schema for the Vietnamese prompt task & complexity classifier.
+# Mirrors NVIDIA prompt-task-and-complexity-classifier exactly (parity decided in plan.md §10 Q5).
+# This file is the single source of truth: model heads, teachers, synth-gen and the router all read it.
+
+# 11 task types (NVIDIA parity). Order is the head's class index order — DO NOT reorder.
+task_types:
+  - Open QA
+  - Closed QA
+  - Summarization
+  - Text Generation
+  - Code Generation
+  - Chatbot
+  - Classification
+  - Rewrite
+  - Brainstorming
+  - Extraction
+  - Other
+
+# Vietnamese gloss per task type — used in teacher/synth prompts so the LLM labels in-language.
+task_types_vi:
+  Open QA: "Hỏi đáp mở (câu hỏi cần kiến thức/giải thích, không có đáp án cố định)"
+  Closed QA: "Hỏi đáp đóng (câu hỏi có đáp án xác định, thường dựa trên ngữ cảnh cho sẵn)"
+  Summarization: "Tóm tắt văn bản"
+  Text Generation: "Sinh văn bản (viết bài, viết nội dung sáng tạo)"
+  Code Generation: "Sinh mã nguồn / lập trình"
+  Chatbot: "Trò chuyện, hội thoại thông thường"
+  Classification: "Phân loại (gán nhãn, phân nhóm nội dung)"
+  Rewrite: "Viết lại / chỉnh sửa văn bản có sẵn"
+  Brainstorming: "Động não, đề xuất ý tưởng"
+  Extraction: "Trích xuất thông tin từ văn bản"
+  Other: "Khác (không thuộc các loại trên)"
+
+# 6 complexity dimensions (NVIDIA parity). Each scored in [0,1] by the model heads.
+complexity_dimensions:
+  - creativity_scope
+  - reasoning
+  - contextual_knowledge
+  - domain_knowledge
+  - constraint_ct
+  - number_of_few_shots
+
+complexity_dimensions_vi:
+  creativity_scope: "Mức độ sáng tạo cần thiết"
+  reasoning: "Mức độ suy luận logic cần thiết"
+  contextual_knowledge: "Kiến thức ngữ cảnh cần ngoài prompt"
+  domain_knowledge: "Kiến thức chuyên môn cần thiết"
+  constraint_ct: "Số lượng ràng buộc/điều kiện trong prompt"
+  number_of_few_shots: "Số ví dụ mẫu (few-shot) trong prompt"

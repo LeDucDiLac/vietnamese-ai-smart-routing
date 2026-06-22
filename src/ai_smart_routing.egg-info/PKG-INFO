@@ -1,0 +1,25 @@
+Metadata-Version: 2.4
+Name: ai-smart-routing
+Version: 0.1.0
+Summary: Vietnamese prompt task & complexity classifier for AI Gateway smart routing
+Requires-Python: >=3.10
+Requires-Dist: pydantic>=2.6
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: numpy>=1.26
+Provides-Extra: ml
+Requires-Dist: torch>=2.2; extra == "ml"
+Requires-Dist: transformers>=4.40; extra == "ml"
+Requires-Dist: datasets>=2.19; extra == "ml"
+Requires-Dist: huggingface-hub>=0.23; extra == "ml"
+Requires-Dist: scikit-learn>=1.4; extra == "ml"
+Requires-Dist: sentencepiece>=0.2; extra == "ml"
+Requires-Dist: onnx>=1.16; extra == "ml"
+Requires-Dist: onnxruntime>=1.18; extra == "ml"
+Requires-Dist: optimum[onnxruntime]>=1.20; extra == "ml"
+Provides-Extra: serve
+Requires-Dist: fastapi>=0.111; extra == "serve"
+Requires-Dist: uvicorn[standard]>=0.30; extra == "serve"
+Provides-Extra: data
+Requires-Dist: datasets>=2.19; extra == "data"
+Requires-Dist: huggingface-hub>=0.23; extra == "data"
+Requires-Dist: fasttext-langdetect>=1.0; extra == "data"

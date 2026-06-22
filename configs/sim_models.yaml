@@ -1,0 +1,88 @@
+# Simulated model registry (plan §5, §11).
+#
+# Each entry is a model's "capability profile": skill score per task_type (0-1),
+# cost in USD per 1k output tokens, latency in ms per 1k tokens, and the
+# permission groups allowed to use it.
+#
+# Seed values are plausible figures drawn from public benchmarks + published API
+# pricing (RouterBench-style). They are NOT the real Viettel numbers — when the
+# actual Gateway model list arrives, replace this file; nothing else changes.
+#
+# skills keys MUST match task_type ids in label_schema.yaml.
+
+defaults:
+  # fallback skill for any task_type not explicitly listed on a model
+  skill_floor: 0.40
+
+models:
+  - id: tiny-fast
+    display_name: "Tiny (fast/cheap)"
+    cost_per_1k_tokens: 0.0002
+    latency_ms_per_1k: 180
+    permissions: [all]
+    skills:
+      open_qa: 0.62
+      closed_qa: 0.70
+      summarization: 0.78
+      text_generation: 0.66
+      code_generation: 0.40
+      chatbot: 0.72
+      classification: 0.74
+      rewrite: 0.75
+      brainstorming: 0.60
+      extraction: 0.70
+      other: 0.55
+
+  - id: small-balanced
+    display_name: "Small (balanced)"
+    cost_per_1k_tokens: 0.0006
+    latency_ms_per_1k: 320
+    permissions: [all]
+    skills:
+      open_qa: 0.74
+      closed_qa: 0.80
+      summarization: 0.85
+      text_generation: 0.78
+      code_generation: 0.62
+      chatbot: 0.82
+      classification: 0.83
+      rewrite: 0.84
+      brainstorming: 0.74
+      extraction: 0.81
+      other: 0.68
+
+  - id: mid-strong
+    display_name: "Mid (strong)"
+    cost_per_1k_tokens: 0.003
+    latency_ms_per_1k: 700
+    permissions: [engineering, premium]
+    skills:
+      open_qa: 0.85
+      closed_qa: 0.88
+      summarization: 0.90
+      text_generation: 0.88
+      code_generation: 0.84
+      chatbot: 0.89
+      classification: 0.88
+      rewrite: 0.89
+      brainstorming: 0.86
+      extraction: 0.88
+      other: 0.80
+
+  - id: giant-smart
+    display_name: "Giant (smartest/most expensive)"
+    cost_per_1k_tokens: 0.02
+    latency_ms_per_1k: 1800
+    permissions: [premium]
+    skills:
+      open_qa: 0.93
+      closed_qa: 0.94
+      summarization: 0.95
+      text_generation: 0.95
+      code_generation: 0.96
+      chatbot: 0.95
+      classification: 0.93
+      rewrite: 0.94
+      brainstorming: 0.94
+      extraction: 0.93
+      other: 0.90

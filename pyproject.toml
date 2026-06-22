@@ -1,0 +1,56 @@
+[project]
+name = "ai-smart-routing"
+version = "0.1.0"
+description = "Vietnamese prompt task & complexity classifier for AI Gateway smart routing"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Heavy ML stack — only needed for actual training / ONNX export.
+ml = [
+    "torch>=2.2",
+    "transformers>=4.40",
+    "datasets>=2.19",
+    "huggingface-hub>=0.23",
+    "scikit-learn>=1.4",
+    "sentencepiece>=0.2",
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+    "optimum[onnxruntime]>=1.20",
+]
+# Serving the routing endpoint.
+serve = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+]
+# Data crawling / language filtering.
+data = [
+    "datasets>=2.19",
+    "huggingface-hub>=0.23",
+    "fasttext-langdetect>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

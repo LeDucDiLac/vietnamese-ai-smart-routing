@@ -1,0 +1,19 @@
+# Classifier model configs for both sizes (see plan §2).
+
+# Quality model — used offline for labeling/eval and non-latency-critical traffic.
+vi-router-quality:
+  backbone: microsoft/mdeberta-v3-base
+  max_tokens: 512
+  pooling: mean          # mean-pool the last hidden state (NVIDIA parity)
+  dropout: 0.1
+  head_hidden: 0         # 0 = linear head directly off pooled rep; >0 inserts an MLP
+
+# Fast model — distilled student, INT8 ONNX, serves the <=50ms CPU path (mandatory per feedback).
+vi-router-fast:
+  backbone: microsoft/Multilingual-MiniLM-L12-H384
+  max_tokens: 256        # shorter cap to hit the CPU latency budget
+  pooling: mean
+  dropout: 0.1
+  head_hidden: 0
+  distill_from: vi-router-quality
+  quantize: int8         # dynamic INT8 at ONNX export

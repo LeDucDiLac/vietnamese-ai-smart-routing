@@ -1,0 +1,73 @@
+# Candidate Vietnamese corpora for the data backbone (plan §3.1).
+#
+# Each entry is a CANDIDATE source to crawl. `probe.py` smoke-tests every one
+# against the HuggingFace datasets-server API (validity + a few sample rows) and
+# writes a manifest to data/probe/ so we know which IDs actually resolve before a
+# real crawl spends GPU/time. IDs that 404 or are gated are flagged, not silently
+# dropped.
+#
+# PROBE STATUS (2026-06-14): all 8 IDs below verified OK via probe.py against the
+# HF datasets-server (see data/probe/manifest.json). Two earlier candidates
+# (5CD-AI/Vietnamese-alpaca-gpt4-gimmaru-3k5, 5CD-AI/Vietnamese-mabricks-code-
+# alpaca-vi) did NOT exist on the Hub and were removed. NO verified VN code-prompt
+# corpus yet -> Code Generation coverage comes from synth_gen.py for now (gap noted
+# in plan §3.1; substitute a real code set here once one is verified).
+#
+# Fields:
+#   id            HF dataset id
+#   text_fields   candidate prompt-text columns, tried in order (first non-empty wins)
+#   task_hint     which of our 11 task types this source mostly feeds (coverage map)
+#   config        optional HF config/subset name
+#   split         split to sample (default: train)
+#   note          why it's here
+
+sources:
+  # --- Instruction / chat (Open QA, Text Generation, Chatbot, Brainstorming) ---
+  - id: bkai-foundation-models/vi-alpaca
+    text_fields: [instruction, input]
+    task_hint: text_generation
+    note: "Vietnamese Alpaca instructions; broad task mix"
+
+  - id: vilm/OpenOrca-Viet
+    text_fields: [question, instruction]
+    task_hint: open_qa
+    note: "OpenOrca translated to VN; QA + reasoning"
+
+  # --- QA (Open QA, Closed QA, Extraction) ---
+  - id: taidng/UIT-ViQuAD2.0
+    text_fields: [question]
+    task_hint: closed_qa
+    note: "Vietnamese reading-comprehension QA (SQuAD-style)"
+
+  # --- Summarization ---
+  - id: Yuhthe/vietnews
+    text_fields: [article]
+    task_hint: summarization
+    note: "VN news articles; summarization source text"
+
+  - id: vietgpt/news_summarization_vi
+    text_fields: [content, document]
+    task_hint: summarization
+    note: "VN news summarization pairs"
+
+  # --- Classification / topic ---
+  - id: uitnlp/vietnamese_students_feedback
+    text_fields: [sentence]
+    task_hint: classification
+    note: "UIT student feedback; sentiment/topic classification"
+
+  # --- General text / domain coverage ---
+  - id: vietgpt/wikipedia_vi
+    text_fields: [text]
+    task_hint: open_qa
+    note: "VN Wikipedia; domain breadth"
+
+  - id: wikimedia/wikipedia
+    config: 20231101.vi
+    text_fields: [text]
+    task_hint: open_qa
+    note: "Wikimedia VN Wikipedia dump; domain breadth (fallback)"
+
+  # --- Code prompts (Code Generation, mixed VN/EN) ---
+  # NOTE: no verified VN code-instruction corpus on the Hub yet. Add one here once
+  # probed OK. Until then, Code Generation coverage is supplied by synth_gen.py.

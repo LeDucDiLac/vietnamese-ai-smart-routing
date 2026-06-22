@@ -1,0 +1,35 @@
+Đề tài: Hệ thống Tự động Chọn Mô hình AI (Smart Routing) cho AI Gateway
+1. Tại sao lại cần dự án này? (Vấn đề hiện tại)
+Hệ thống của Viettel (AI Gateway) đang kết nối với rất nhiều "bộ não" AI khác nhau. Mỗi AI lại có điểm mạnh, điểm yếu, tốc độ và chi phí sử dụng khác nhau. Điều này dẫn đến một số rắc rối:
+
+Lãng phí và chậm trễ: Nếu người dùng chỉ yêu cầu một việc đơn giản (như tóm tắt 1 đoạn văn ngắn) nhưng hệ thống lại giao cho một AI khổng lồ, phức tạp xử lý thì sẽ rất tốn tiền và mất thời gian chờ đợi.
+
+Chất lượng kém: Ngược lại, nếu yêu cầu một việc khó (như viết mã code phức tạp) nhưng lại giao cho một AI nhỏ, thì câu trả lời sẽ nhiều lỗi và không dùng được.
+
+Khó sử dụng: Người dùng bình thường không thể biết nên chọn AI nào cho phù hợp với từng câu hỏi của mình. Họ cần một chế độ "Tự động" (Auto).
+
+Quản lý phức tạp: Mỗi nhân viên/phòng ban lại chỉ được cấp quyền dùng một số AI nhất định.
+
+=> Giải pháp: Cần xây dựng một "Người điều phối thông minh" đứng ở giữa. Khi có câu hỏi gửi đến, người điều phối này sẽ tự động phân tích và giao việc đó cho AI phù hợp nhất (vừa giỏi việc đó, vừa rẻ, vừa nhanh, và người dùng đó có quyền được dùng).
+
+2. Dự án sẽ làm những việc gì? (Các bước thực hiện)
+Lập "Hồ sơ năng lực" cho từng AI: Chấm điểm các AI đang có xem chúng giỏi kỹ năng gì (viết code, tính toán, hỏi đáp...), tốc độ trả lời ra sao và tốn bao nhiêu tiền cho mỗi câu trả lời.
+
+Đào tạo "Người điều phối" hiểu câu hỏi: Xây dựng một công cụ có khả năng đọc lướt câu hỏi của người dùng để phân loại xem đây là việc khó hay dễ, thuộc lĩnh vực nào.
+
+Xây dựng thuật toán tự động ghép đôi: Kết hợp "Hồ sơ năng lực AI" và "Phân loại câu hỏi" để tự động chọn ra AI tốt nhất, rẻ nhất và nhanh nhất để trả lời, đồng thời kiểm tra xem người hỏi có quyền dùng AI đó không.
+
+Lắp ráp vào hệ thống thực tế: Tích hợp bộ điều phối này vào hệ thống AI Gateway hiện tại một cách âm thầm, để người dùng không cần phải cài đặt hay thay đổi cách họ đang làm việc mà vẫn thấy mọi thứ nhanh và thông minh hơn.
+
+3. Kết quả mong đợi là gì? (Tiêu chuẩn thành công)
+Dự án được đánh giá là thành công nếu đạt được các tiêu chí sau:
+
+Có bảng xếp hạng AI rõ ràng: Hệ thống tự động theo dõi và cập nhật điểm số năng lực của các AI khi có phiên bản mới.
+
+Hoạt động siêu tốc: Quá trình "suy nghĩ để chọn AI" diễn ra gần như ngay lập tức (chậm nhất chỉ tốn 0.05 giây), không làm người dùng cảm thấy bị độ trễ.
+
+Tiết kiệm tiền: Giảm ít nhất 30% chi phí vận hành AI so với việc lúc nào cũng dùng một AI xịn nhất, mà chất lượng câu trả lời vẫn gần như tương đương (sai lệch không quá 3%).
+
+Tiết kiệm thời gian: Giảm ít nhất 20% thời gian chờ đợi cho các câu hỏi đơn giản (vì đã được tự động chuyển cho các AI nhỏ và nhanh nhẹn xử lý).
+
+Bàn giao đầy đủ: Có đủ mã nguồn ứng dụng, tài liệu hướng dẫn sử dụng và báo cáo chứng minh hiệu quả thực tế.
