@@ -3,8 +3,9 @@
 This guide covers the full Kaggle workflow for this repo:
 
 1. prepare the repo locally and push it to GitHub
+1. upload the processed dataset to Kaggle
 1. clone the repo inside Kaggle
-1. attach the processed dataset
+1. attach the dataset inputs
 1. install dependencies
 1. run training and evaluation
 1. optionally run distillation, export, leaderboard refresh, and simulation
@@ -39,7 +40,46 @@ You need a Kaggle dataset that contains `train.jsonl`, `val.jsonl`, and
 `test.jsonl`. The repo's training code reads the processed split files from that
 mount.
 
-## 3. Clone the repo into Kaggle
+## 3. Upload the processed dataset to Kaggle
+
+Best practice is to publish `data/processed` as its own Kaggle Dataset, not to
+mix it with the repo source.
+
+Recommended local layout before upload:
+
+```text
+processed/
+  train.jsonl
+  val.jsonl
+  test.jsonl
+  build_report.json
+```
+
+Upload it in the Kaggle UI:
+
+1. Go to Kaggle Datasets.
+1. Create a new Dataset.
+1. Upload the `processed/` folder or a zip that contains those files.
+1. Publish the dataset.
+1. Use the published dataset as an input in your notebook.
+
+If you prefer the Kaggle API, use the Kaggle CLI from your local machine:
+
+```bash
+# one-time setup: create dataset metadata in the folder
+kaggle datasets init -p processed
+
+# edit processed/dataset-metadata.json, then publish the first version
+kaggle datasets create -p processed
+
+# later updates: publish a new version
+kaggle datasets version -p processed -m "refresh processed split"
+```
+
+The CLI expects Kaggle credentials in `~/.kaggle/kaggle.json`. After the dataset
+is published, attach it as a notebook input and point `--data-root` at the mount.
+
+## 4. Clone the repo into Kaggle
 
 Recommended if Internet is enabled:
 
@@ -56,7 +96,7 @@ storage first:
 %cd /kaggle/working/ai-smart-routing
 ```
 
-## 4. Install dependencies
+## 5. Install dependencies
 
 The repo does not use `uv` inside Kaggle. Use the runner's built-in installer.
 
@@ -76,7 +116,7 @@ If you want to install the package manually instead of using the runner:
 !python -m pip install transformers sentencepiece onnx onnxruntime datasets huggingface-hub
 ```
 
-## 5. Point the runner at the processed dataset
+## 6. Point the runner at the processed dataset
 
 Replace `<processed-dataset-root>` with the Kaggle input that contains the
 processed JSONL files.
@@ -94,7 +134,7 @@ The runner accepts either:
 1. a root that contains `processed/train.jsonl`, `processed/val.jsonl`, and
    `processed/test.jsonl`
 
-## 6. Train the model
+## 7. Train the model
 
 Main training command:
 
@@ -122,7 +162,7 @@ That directory contains:
 1. `meta.json`
 1. `history.jsonl`
 
-## 7. Run evaluation
+## 8. Run evaluation
 
 Offline routing evaluation:
 
@@ -148,7 +188,7 @@ If you want to limit the eval size for a quick smoke test:
 !python kaggle_run.py --steps simulate --data-root /kaggle/input/<processed-dataset-root> --sim-limit 50
 ```
 
-## 8. Optional pipeline stages
+## 9. Optional pipeline stages
 
 The runner supports more than train/eval. Run them in order if you need the full
 pipeline.
@@ -170,7 +210,7 @@ Stage summary:
 If you already have `data/processed`, you usually only need `train` and
 `simulate`.
 
-## 9. Where outputs land
+## 10. Where outputs land
 
 By default on Kaggle:
 
@@ -186,7 +226,7 @@ Subdirectories:
 1. `leaderboard/` for leaderboard refresh outputs
 1. `eval/` for the offline evaluation report
 
-## 10. Common pitfalls
+## 11. Common pitfalls
 
 1. Do not rely on `uv` inside Kaggle. This repo uses `pip` there.
 1. Do not point `--data-root` at the wrong level. It must resolve to the
@@ -195,4 +235,3 @@ Subdirectories:
    dataset instead.
 1. If training cannot find `train.jsonl`, verify that your Kaggle input mount has
    `train.jsonl` or `processed/train.jsonl`.
-
