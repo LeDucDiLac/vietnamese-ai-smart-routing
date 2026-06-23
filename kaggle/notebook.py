@@ -18,62 +18,53 @@ CONFIG = REPO / "kaggle" / "run_config.json"
 GITHUB_URL = "https://github.com/LeDucDiLac/vietnamese-ai-smart-routing.git"
 
 
-# GPUs with CUDA capability < 7.0 — incompatible with torch 2.10+
-_OLD_GPU_NAMES = ("P100", "K80", "M60", "M40", "K40", "P4", "P40")
+# sm_60 GPUs: incompatible with torch 2.10+, need torch 2.3.x+cu118
+_SM60_GPU_NAMES = ("P100", "K80", "M60", "M40", "K40", "P4", "P40")
+_TORCH_SM60 = "torch==2.3.1+cu118"
+_TORCH_SM60_INDEX = "https://download.pytorch.org/whl/cu118"
+
+
+def _gpu_name() -> str:
+    """Return the first GPU name from nvidia-smi, or empty string."""
+    for args in (
+        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+        ["nvidia-smi", "-L"],
+    ):
+        r = subprocess.run(args, capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip().splitlines()[0].strip()
+    return ""
 
 
 def check_gpu():
-    """Exit with code 99 if Kaggle assigned an incompatible GPU.
+    """Install a compatible torch version if Kaggle assigned a sm_60 GPU (P100, K80…).
 
-    Uses nvidia-smi (not torch) so we never touch CUDA before checking.
-    Falls back to GPU name matching if the compute_cap query field is
-    unsupported by the installed nvidia-smi version.
-    Writes to run.log before exiting so the retry loop detects the reason.
+    torch 2.10 requires sm_70+. Instead of bailing, we install torch 2.3.1+cu118
+    which supports sm_60. The subprocess (kaggle_run.py) starts fresh and picks up
+    the newly installed version. CUDA 12.x drivers are backwards-compatible with
+    cu118 binaries, so this works on Kaggle regardless of driver version.
     """
-    def _bail(name: str) -> None:
-        msg = (
-            f"[kernel] INCOMPATIBLE GPU: {name} — torch 2.10 requires sm_70+. "
-            f"Re-triggering for T4/V100.\n"
+    name = _gpu_name()
+    if not name:
+        print("[kernel] Could not query GPU name — proceeding with default torch.")
+        return
+
+    if any(old in name for old in _SM60_GPU_NAMES):
+        print(
+            f"[kernel] sm_60 GPU detected ({name}). "
+            f"Installing {_TORCH_SM60} for compatibility…"
         )
-        print(msg, end="")
-        LOG.parent.mkdir(parents=True, exist_ok=True)
-        LOG.write_text(msg, encoding="utf-8")
-        sys.exit(99)
-
-    # Preferred: query compute capability directly
-    r = subprocess.run(
-        ["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
-        capture_output=True, text=True,
-    )
-    if r.returncode == 0 and r.stdout.strip():
-        for line in r.stdout.strip().splitlines():
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 2:
-                name, cc_str = parts[0], parts[1]
-                try:
-                    if int(cc_str.split(".")[0]) < 7:
-                        _bail(name)
-                    else:
-                        print(f"[kernel] GPU OK: {name} (sm {cc_str})")
-                except (ValueError, IndexError):
-                    pass
-        return
-
-    # Fallback: match by GPU name when compute_cap field is unavailable
-    r2 = subprocess.run(
-        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-        capture_output=True, text=True,
-    )
-    if r2.returncode == 0 and r2.stdout.strip():
-        for line in r2.stdout.strip().splitlines():
-            name = line.strip()
-            if any(old in name for old in _OLD_GPU_NAMES):
-                _bail(name)
-            else:
-                print(f"[kernel] GPU OK: {name}")
-        return
-
-    print("[kernel] Could not query GPU — proceeding anyway.")
+        subprocess.run(
+            [
+                sys.executable, "-m", "pip", "install", "-q",
+                _TORCH_SM60,
+                "--index-url", _TORCH_SM60_INDEX,
+            ],
+            check=True,
+        )
+        print(f"[kernel] {_TORCH_SM60} installed — training will proceed on {name}.")
+    else:
+        print(f"[kernel] GPU OK: {name}")
 
 
 def git_clone():
