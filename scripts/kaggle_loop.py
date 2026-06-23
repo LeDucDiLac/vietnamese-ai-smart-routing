@@ -177,11 +177,18 @@ def main() -> None:
     # 3. trigger kaggle run
     trigger_kaggle_run(args.kernel)
 
-    # 4. poll
-    status = poll_until_done(args.kernel, args.poll_interval, args.timeout)
-
-    # 5. fetch logs
-    fetch_logs(args.kernel)
+    # 4. poll + auto-retry once if P100 was assigned
+    for attempt in range(1, 4):
+        status = poll_until_done(args.kernel, args.poll_interval, args.timeout)
+        fetch_logs(args.kernel)
+        if status != "error":
+            break
+        log_path = REPO / "runs" / "kaggle_output" / "run.log"
+        if log_path.exists() and "INCOMPATIBLE GPU" in log_path.read_text():
+            section(f"P100 assigned — re-triggering (attempt {attempt + 1}/3)")
+            trigger_kaggle_run(args.kernel)
+        else:
+            break
 
     section(f"Done — status: {status.upper()}")
     sys.exit(0 if status == "complete" else 1)

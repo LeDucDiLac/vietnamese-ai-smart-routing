@@ -18,6 +18,25 @@ CONFIG = REPO / "kaggle" / "run_config.json"
 GITHUB_URL = "https://github.com/LeDucDiLac/vietnamese-ai-smart-routing.git"
 
 
+def check_gpu():
+    """Exit immediately with code 99 if Kaggle assigned an incompatible GPU."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            cc = torch.cuda.get_device_capability(0)
+            name = torch.cuda.get_device_name(0)
+            if cc[0] < 7:
+                print(
+                    f"[kernel] INCOMPATIBLE GPU: {name} is sm_{cc[0]}{cc[1]} "
+                    f"but torch {torch.__version__} requires sm_70+. "
+                    f"Re-trigger the run to get a T4/V100."
+                )
+                sys.exit(99)
+            print(f"[kernel] GPU OK: {name} sm_{cc[0]}{cc[1]}")
+    except ImportError:
+        pass
+
+
 def git_clone():
     if REPO.exists():
         print(f"[kernel] repo already present at {REPO}, pulling latest")
@@ -44,6 +63,7 @@ def build_cmd(cfg: dict) -> list[str]:
 
 
 def main():
+    check_gpu()
     git_clone()
 
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
