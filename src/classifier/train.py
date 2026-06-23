@@ -284,6 +284,9 @@ def train(
     criterion = MultiTaskLoss(schema, reg_weight=reg_weight, class_weights=class_weights)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
+    use_amp = torch.cuda.is_available() and device == "cuda"
+    scaler = torch.amp.GradScaler("cuda") if use_amp else None
+
     history: list[dict[str, Any]] = []
     step = 0
     model.train()
@@ -295,13 +298,21 @@ def train(
             batch["dim_targets"] = {
                 k: v.to(device) for k, v in batch["dim_targets"].items()
             }
-            outputs = model(input_ids, attention_mask)
-            loss, parts = criterion(outputs, batch)
+            with torch.amp.autocast("cuda", enabled=use_amp):
+                outputs = model(input_ids, attention_mask)
+                loss, parts = criterion(outputs, batch)
 
             optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            if scaler:
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
 
             if step % 20 == 0:
                 parts["epoch"] = epoch

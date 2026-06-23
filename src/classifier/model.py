@@ -95,7 +95,7 @@ class CustomModel(nn.Module):
 
         auto_cfg = AutoConfig.from_pretrained(spec.backbone)
         if pretrained:
-            self.backbone = AutoModel.from_pretrained(spec.backbone, torch_dtype=torch.float32)
+            self.backbone = AutoModel.from_pretrained(spec.backbone)
         else:
             # build from config only — fast, weightless; for unit tests / shape checks
             self.backbone = AutoModel.from_config(auto_cfg)
