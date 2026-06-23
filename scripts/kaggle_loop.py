@@ -41,8 +41,19 @@ def section(title: str) -> None:
 # Steps
 # ---------------------------------------------------------------------------
 
+def torch_available() -> bool:
+    r = subprocess.run(
+        [sys.executable, "-c", "import torch"],
+        cwd=REPO, capture_output=True,
+    )
+    return r.returncode == 0
+
+
 def local_smoke_test(max_steps: int) -> bool:
     section(f"Local smoke test (--max-steps {max_steps})")
+    if not torch_available():
+        print("  torch not installed locally — running syntax check instead.")
+        return syntax_check()
     SMOKE_LOG.parent.mkdir(parents=True, exist_ok=True)
     r = sh(
         [
@@ -59,6 +70,24 @@ def local_smoke_test(max_steps: int) -> bool:
         return True
     print("\n✗ Smoke test FAILED — fix the error above before pushing to Kaggle.")
     return False
+
+
+def syntax_check() -> bool:
+    """Compile all Python source files to catch syntax errors without torch."""
+    import py_compile
+    errors = []
+    for path in sorted((REPO / "src").rglob("*.py")):
+        try:
+            py_compile.compile(str(path), doraise=True)
+        except py_compile.PyCompileError as e:
+            errors.append(str(e))
+    if errors:
+        print("\n✗ Syntax errors found:")
+        for e in errors:
+            print(f"  {e}")
+        return False
+    print(f"✓ Syntax OK ({len(list((REPO / 'src').rglob('*.py')))} files checked).")
+    return True
 
 
 def commit_and_push(message: str = "auto: training iteration") -> None:
