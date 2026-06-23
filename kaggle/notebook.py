@@ -81,7 +81,7 @@ def build_cmd(cfg: dict) -> list[str]:
     cmd = [
         sys.executable, "kaggle_run.py",
         "--install",
-        "--steps", cfg["steps"],
+        "--steps", *(cfg["steps"] if isinstance(cfg["steps"], list) else cfg["steps"].split()),
         "--data-root", cfg["data_root"],
         "--epochs", str(cfg.get("epochs", 3)),
     ]
