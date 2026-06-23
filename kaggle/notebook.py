@@ -63,7 +63,13 @@ def check_gpu():
             ],
             check=True,
         )
-        print(f"[kernel] {_TORCH_SM60} installed — training will proceed on {name}.")
+        # transformers >= 4.47 requires torch >= 2.6 (CVE-2025-32434 check).
+        # Downgrade to last version before that check was added.
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "transformers==4.44.2"],
+            check=True,
+        )
+        print(f"[kernel] {_TORCH_SM60} + transformers==4.44.2 installed for P100.")
     else:
         print(f"[kernel] GPU OK: {name}")
 
