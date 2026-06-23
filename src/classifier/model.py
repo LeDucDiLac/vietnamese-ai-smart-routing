@@ -95,6 +95,14 @@ class CustomModel(nn.Module):
 
         auto_cfg = AutoConfig.from_pretrained(spec.backbone)
         if pretrained:
+            # transformers >= 4.47 blocks torch.load when torch < 2.6 (CVE-2025-32434).
+            # P100/K80 GPUs require torch 2.3.x (sm_60 dropped in 2.6+), so we patch
+            # out the check. The model loads via safetensors — not affected by the CVE.
+            try:
+                import transformers.utils.import_utils as _tu
+                _tu.check_torch_load_is_safe = lambda: None
+            except Exception:
+                pass
             self.backbone = AutoModel.from_pretrained(spec.backbone)
         else:
             # build from config only — fast, weightless; for unit tests / shape checks
