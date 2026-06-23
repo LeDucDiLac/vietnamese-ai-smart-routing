@@ -280,7 +280,7 @@ def train(
         train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate
     )
 
-    model = CustomModel(spec, schema, complexity, pretrained=pretrained).to(device)
+    model = CustomModel(spec, schema, complexity, pretrained=pretrained).to(device).float()
     criterion = MultiTaskLoss(schema, reg_weight=reg_weight, class_weights=class_weights)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
