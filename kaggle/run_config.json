@@ -1,5 +1,5 @@
 {
-  "steps": "train",
+  "steps": "train simulate",
   "epochs": 3,
   "data_root": "/kaggle/input/ai-smart-routing-dataset",
   "batch_size": null,
