@@ -25,9 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import time
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
+from tqdm.auto import tqdm
 
 from classifier.model import CustomModel, ModelSpec
 from classifier.tokenization import PromptTokenizer
@@ -289,9 +292,21 @@ def train(
 
     history: list[dict[str, Any]] = []
     step = 0
+    total_batches = len(train_dl)
+    total_steps = min(epochs * total_batches, max_steps) if max_steps else epochs * total_batches
+    t_train_start = time.time()
+
     model.train()
-    for epoch in range(epochs):
-        for batch in train_dl:
+    epoch_bar = tqdm(range(epochs), desc="Training", unit="epoch", ncols=100)
+    for epoch in epoch_bar:
+        batch_bar = tqdm(
+            train_dl,
+            desc=f"  Epoch {epoch + 1}/{epochs}",
+            unit="batch",
+            leave=True,
+            ncols=100,
+        )
+        for batch in batch_bar:
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             batch["task_idx"] = batch["task_idx"].to(device)
@@ -314,6 +329,7 @@ def train(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
+            batch_bar.set_postfix(loss=f"{parts['loss']:.4f}")
             if step % 20 == 0:
                 parts["epoch"] = epoch
                 parts["step"] = step
@@ -321,6 +337,15 @@ def train(
             step += 1
             if max_steps is not None and step >= max_steps:
                 break
+
+        elapsed = time.time() - t_train_start
+        steps_remaining = total_steps - step
+        eta_s = (elapsed / step * steps_remaining) if step > 0 else 0.0
+        last_loss = history[-1]["loss"] if history else math.nan
+        epoch_bar.set_postfix(
+            loss=f"{last_loss:.4f}",
+            eta=f"{eta_s / 60:.1f}m",
+        )
         if max_steps is not None and step >= max_steps:
             break
 

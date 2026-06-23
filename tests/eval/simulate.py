@@ -36,6 +36,12 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Callable
 
+try:
+    from tqdm.auto import tqdm as _tqdm
+except ImportError:
+    def _tqdm(it, **kw):  # type: ignore[misc]
+        return it
+
 from router.capability import load_capabilities
 from router.match import select_model
 from sim.routerbench_adapter import ReplayRecord, load_long_format, model_ids_in
@@ -87,7 +93,7 @@ def _evaluate_policy(
     simple_latencies: list[float] = []
     overheads: list[float] = []
 
-    for rec in records:
+    for rec in _tqdm(records, desc=f"  {name}", unit="prompt", ncols=100, leave=True):
         t0 = time.perf_counter()
         chosen_id = pick(rec)
         overheads.append((time.perf_counter() - t0) * 1000.0)
@@ -219,11 +225,14 @@ def simulate(
         latency_ceiling=latency_ceiling,
     )
 
+    print(f"Simulating {len(records)} prompts across 3 policies…")
+    t_sim_start = time.time()
     best_res, _ = _evaluate_policy("always-best", records, best_pick, simple_ids)
     cheap_res, _ = _evaluate_policy("always-cheap", records, cheap_pick, simple_ids)
     router_res, overheads = _evaluate_policy(
         "router", records, router_pick, simple_ids
     )
+    print(f"Simulation done in {time.time() - t_sim_start:.1f}s.")
 
     # deltas vs. always-best (the quality reference)
     cost_reduction = (
