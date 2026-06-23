@@ -58,6 +58,7 @@ def check_gpu():
             [
                 sys.executable, "-m", "pip", "install", "-q",
                 _TORCH_SM60,
+                "torchvision==0.18.1+cu118",
                 "--index-url", _TORCH_SM60_INDEX,
             ],
             check=True,
