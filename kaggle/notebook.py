@@ -19,22 +19,34 @@ GITHUB_URL = "https://github.com/LeDucDiLac/vietnamese-ai-smart-routing.git"
 
 
 def check_gpu():
-    """Exit immediately with code 99 if Kaggle assigned an incompatible GPU."""
-    try:
-        import torch
-        if torch.cuda.is_available():
-            cc = torch.cuda.get_device_capability(0)
-            name = torch.cuda.get_device_name(0)
-            if cc[0] < 7:
-                print(
-                    f"[kernel] INCOMPATIBLE GPU: {name} is sm_{cc[0]}{cc[1]} "
-                    f"but torch {torch.__version__} requires sm_70+. "
-                    f"Re-trigger the run to get a T4/V100."
-                )
-                sys.exit(99)
-            print(f"[kernel] GPU OK: {name} sm_{cc[0]}{cc[1]}")
-    except ImportError:
-        pass
+    """Exit with code 99 if Kaggle assigned an incompatible GPU.
+
+    Uses nvidia-smi instead of torch so we never touch CUDA before verifying
+    the GPU is compatible — torch 2.10 crashes on P100 (sm_60) at import time.
+    """
+    r = subprocess.run(
+        ["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print("[kernel] nvidia-smi not available — assuming CPU-only run.")
+        return
+    for line in r.stdout.strip().splitlines():
+        parts = line.split(", ")
+        if len(parts) < 2:
+            continue
+        name, cc_str = parts[0].strip(), parts[1].strip()
+        try:
+            cc_major = int(cc_str.split(".")[0])
+        except ValueError:
+            continue
+        if cc_major < 7:
+            print(
+                f"[kernel] INCOMPATIBLE GPU: {name} is sm_{cc_str.replace('.', '')} "
+                f"but torch 2.10 requires sm_70+. Re-triggering for T4/V100."
+            )
+            sys.exit(99)
+        print(f"[kernel] GPU OK: {name} (sm_{cc_str.replace('.', '')})")
 
 
 def git_clone():
