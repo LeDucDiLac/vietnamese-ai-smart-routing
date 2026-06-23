@@ -13,6 +13,7 @@ timeline.pdf
 .claude/
 .agents/
 .codex/
+.vscode/
 
 # data
 /data/
