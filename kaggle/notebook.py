@@ -18,35 +18,62 @@ CONFIG = REPO / "kaggle" / "run_config.json"
 GITHUB_URL = "https://github.com/LeDucDiLac/vietnamese-ai-smart-routing.git"
 
 
+# GPUs with CUDA capability < 7.0 — incompatible with torch 2.10+
+_OLD_GPU_NAMES = ("P100", "K80", "M60", "M40", "K40", "P4", "P40")
+
+
 def check_gpu():
     """Exit with code 99 if Kaggle assigned an incompatible GPU.
 
-    Uses nvidia-smi instead of torch so we never touch CUDA before verifying
-    the GPU is compatible — torch 2.10 crashes on P100 (sm_60) at import time.
+    Uses nvidia-smi (not torch) so we never touch CUDA before checking.
+    Falls back to GPU name matching if the compute_cap query field is
+    unsupported by the installed nvidia-smi version.
+    Writes to run.log before exiting so the retry loop detects the reason.
     """
+    def _bail(name: str) -> None:
+        msg = (
+            f"[kernel] INCOMPATIBLE GPU: {name} — torch 2.10 requires sm_70+. "
+            f"Re-triggering for T4/V100.\n"
+        )
+        print(msg, end="")
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        LOG.write_text(msg, encoding="utf-8")
+        sys.exit(99)
+
+    # Preferred: query compute capability directly
     r = subprocess.run(
         ["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
         capture_output=True, text=True,
     )
-    if r.returncode != 0:
-        print("[kernel] nvidia-smi not available — assuming CPU-only run.")
+    if r.returncode == 0 and r.stdout.strip():
+        for line in r.stdout.strip().splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2:
+                name, cc_str = parts[0], parts[1]
+                try:
+                    if int(cc_str.split(".")[0]) < 7:
+                        _bail(name)
+                    else:
+                        print(f"[kernel] GPU OK: {name} (sm {cc_str})")
+                except (ValueError, IndexError):
+                    pass
         return
-    for line in r.stdout.strip().splitlines():
-        parts = line.split(", ")
-        if len(parts) < 2:
-            continue
-        name, cc_str = parts[0].strip(), parts[1].strip()
-        try:
-            cc_major = int(cc_str.split(".")[0])
-        except ValueError:
-            continue
-        if cc_major < 7:
-            print(
-                f"[kernel] INCOMPATIBLE GPU: {name} is sm_{cc_str.replace('.', '')} "
-                f"but torch 2.10 requires sm_70+. Re-triggering for T4/V100."
-            )
-            sys.exit(99)
-        print(f"[kernel] GPU OK: {name} (sm_{cc_str.replace('.', '')})")
+
+    # Fallback: match by GPU name when compute_cap field is unavailable
+    r2 = subprocess.run(
+        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+        capture_output=True, text=True,
+    )
+    if r2.returncode == 0 and r2.stdout.strip():
+        for line in r2.stdout.strip().splitlines():
+            name = line.strip()
+            if any(old in name for old in _OLD_GPU_NAMES):
+                _bail(name)
+            else:
+                print(f"[kernel] GPU OK: {name}")
+        return
+
+    print("[kernel] Could not query GPU — proceeding anyway.")
 
 
 def git_clone():
