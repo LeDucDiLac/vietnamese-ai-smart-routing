@@ -1,0 +1,8 @@
+{
+  "steps": "train",
+  "epochs": 3,
+  "data_root": "/kaggle/input/ai-smart-routing-dataset",
+  "batch_size": null,
+  "max_steps": null,
+  "extra_args": []
+}
