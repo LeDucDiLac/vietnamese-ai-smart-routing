@@ -189,9 +189,11 @@ def step_simulate(args: argparse.Namespace) -> None:
     from dataclasses import asdict
     import json
 
-    data_root = Path(args.data_root)
-    val = data_root / "processed" / "val.jsonl"
-    train_jsonl = data_root / "processed" / "train.jsonl"
+    from classifier.train import resolve_data_dir
+
+    data_dir = resolve_data_dir(Path(args.data_root) / "processed")
+    val = data_dir / "val.jsonl"
+    train_jsonl = data_dir / "train.jsonl"
     # prefer val; fall back to train so the smoke path always has prompts
     prompts = val if val.exists() and val.stat().st_size > 0 else train_jsonl
     cache = data_root / "sim" / "vi_cache.jsonl"

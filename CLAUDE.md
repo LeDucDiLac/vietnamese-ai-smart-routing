@@ -35,6 +35,7 @@ Edit [kaggle/run_config.json](kaggle/run_config.json) to change what gets traine
 ```
 --skip-smoke    Skip the local syntax/smoke check
 --skip-push     Skip git commit+push (already pushed)
+--skip-trigger  Skip kaggle kernels push (poll an already-running kernel)
 --smoke-steps   Max steps for local smoke test (default: 20)
 --poll-interval Seconds between Kaggle status polls (default: 60)
 --timeout       Max wait in seconds (default: 7200)

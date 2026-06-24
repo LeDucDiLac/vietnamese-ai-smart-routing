@@ -160,6 +160,7 @@ def main() -> None:
     )
     ap.add_argument("--skip-smoke", action="store_true", help="Skip local smoke test")
     ap.add_argument("--skip-push", action="store_true", help="Skip git commit+push")
+    ap.add_argument("--skip-trigger", action="store_true", help="Skip kaggle kernels push (poll already-running kernel)")
     ap.add_argument("--smoke-steps", type=int, default=20, help="Steps for local smoke test")
     ap.add_argument("--poll-interval", type=int, default=60, help="Seconds between polls")
     ap.add_argument("--timeout", type=int, default=7200, help="Max wait seconds for Kaggle run")
@@ -175,7 +176,8 @@ def main() -> None:
         commit_and_push()
 
     # 3. trigger kaggle run
-    trigger_kaggle_run(args.kernel)
+    if not args.skip_trigger:
+        trigger_kaggle_run(args.kernel)
 
     # 4. poll
     status = poll_until_done(args.kernel, args.poll_interval, args.timeout)
