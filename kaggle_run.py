@@ -191,7 +191,8 @@ def step_simulate(args: argparse.Namespace) -> None:
 
     from classifier.train import resolve_data_dir
 
-    data_dir = resolve_data_dir(Path(args.data_root) / "processed")
+    data_root = Path(args.data_root)
+    data_dir = resolve_data_dir(data_root / "processed")
     val = data_dir / "val.jsonl"
     train_jsonl = data_dir / "train.jsonl"
     # prefer val; fall back to train so the smoke path always has prompts
