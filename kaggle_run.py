@@ -197,7 +197,7 @@ def step_simulate(args: argparse.Namespace) -> None:
     train_jsonl = data_dir / "train.jsonl"
     # prefer val; fall back to train so the smoke path always has prompts
     prompts = val if val.exists() and val.stat().st_size > 0 else train_jsonl
-    cache = data_root / "sim" / "vi_cache.jsonl"
+    cache = Path(args.out_root) / "sim" / "vi_cache.jsonl"
     build_cache(prompts, cache, mode="synthetic", limit=args.sim_limit)
 
     # Default to a caller that can reach every model (premium + engineering),
