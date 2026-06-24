@@ -283,6 +283,12 @@ def train(
         train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate
     )
 
+    val_path = data_dir / "val.jsonl"
+    val_dl: DataLoader | None = None
+    if val_path.exists():
+        val_ds = PromptDataset(val_path, schema)
+        val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate)
+
     model = CustomModel(spec, schema, complexity, pretrained=pretrained).float().to(device)
     criterion = MultiTaskLoss(schema, reg_weight=reg_weight, class_weights=class_weights)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -338,16 +344,49 @@ def train(
             if max_steps is not None and step >= max_steps:
                 break
 
+        # Validation loss pass
+        val_loss = math.nan
+        if val_dl is not None:
+            model.eval()
+            val_loss_sum = 0.0
+            val_steps = 0
+            val_bar = tqdm(val_dl, desc="  Val", unit="batch", leave=False, ncols=100)
+            with torch.no_grad():
+                for vbatch in val_bar:
+                    vbatch["input_ids"] = vbatch["input_ids"].to(device)
+                    vbatch["attention_mask"] = vbatch["attention_mask"].to(device)
+                    vbatch["task_idx"] = vbatch["task_idx"].to(device)
+                    vbatch["dim_targets"] = {
+                        k: v.to(device) for k, v in vbatch["dim_targets"].items()
+                    }
+                    with torch.amp.autocast("cuda", enabled=use_amp):
+                        vout = model(vbatch["input_ids"], vbatch["attention_mask"])
+                        vloss, _ = criterion(vout, vbatch)
+                    val_loss_sum += vloss.item()
+                    val_steps += 1
+                    val_bar.set_postfix(loss=f"{val_loss_sum / val_steps:.4f}")
+            val_loss = val_loss_sum / val_steps if val_steps else math.nan
+            model.train()
+
         elapsed = time.time() - t_train_start
         steps_remaining = total_steps - step
         eta_s = (elapsed / step * steps_remaining) if step > 0 else 0.0
         last_loss = history[-1]["loss"] if history else math.nan
         epoch_bar.set_postfix(
             loss=f"{last_loss:.4f}",
+            val_loss=f"{val_loss:.4f}",
             eta=f"{eta_s / 60:.1f}m",
         )
+        if history:
+            history[-1]["val_loss"] = val_loss
         if max_steps is not None and step >= max_steps:
             break
+
+    # Final validation metrics
+    val_metrics: dict[str, Any] = {}
+    if val_dl is not None:
+        val_metrics = evaluate(model, val_dl, schema, device)
+        val_metrics["val_loss"] = history[-1].get("val_loss", math.nan) if history else math.nan
 
     # Persist weights + the spec needed to rebuild for inference/distill.
     ckpt = out_dir / "model.pt"
@@ -360,6 +399,7 @@ def train(
         "epochs": epochs,
         "steps": step,
         "final_loss": history[-1]["loss"] if history else math.nan,
+        **val_metrics,
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     (out_dir / "history.jsonl").write_text(
