@@ -75,7 +75,64 @@ def _build_env() -> dict[str, str]:
     return env
 
 
-def launch_all(
+def _make_cmd(
+    model_name: str,
+    data_root: Path,
+    out_root: Path,
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    max_steps: int | None,
+    schema_version: str | None,
+    no_pretrained: bool,
+) -> tuple[list[str], Path, Path]:
+    out_dir = out_root / model_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    log_path = out_root / f"{model_name}.log"
+    cmd = [
+        "uv", "run", "--extra", "ml",
+        "python", "-m", "classifier.train",
+        "--model", model_name,
+        "--data", str(data_root),
+        "--out", str(out_dir),
+        "--epochs", str(epochs),
+        "--batch-size", str(batch_size),
+        "--lr", str(lr),
+    ]
+    if max_steps is not None:
+        cmd += ["--max-steps", str(max_steps)]
+    if schema_version is not None:
+        cmd += ["--schema-version", schema_version]
+    if no_pretrained:
+        cmd += ["--no-pretrained"]
+    return cmd, log_path, out_dir
+
+
+def _launch_one(model_name: str, cmd: list[str], log_path: Path, env: dict) -> tuple:
+    log_fh = log_path.open("w", encoding="utf-8", buffering=1)
+    proc = subprocess.Popen(cmd, env=env, cwd=str(REPO), stdout=log_fh, stderr=subprocess.STDOUT)
+    print(f"  [PID {proc.pid:>6}] {model_name}  ->  {log_path.name}", flush=True)
+    return (model_name, proc, log_fh, log_path, time.time())
+
+
+def _collect(entry: tuple, out_root: Path) -> dict:
+    model_name, proc, log_fh, log_path, t0 = entry
+    log_fh.close()
+    elapsed = time.time() - t0
+    retcode = proc.returncode
+    if retcode != 0:
+        print(f"  [FAIL] {model_name}  exit={retcode}  ({elapsed / 60:.1f}m)  log: {log_path.name}", flush=True)
+        return {"model_name": model_name, "error": f"exit {retcode}", "elapsed_s": elapsed}
+    print(f"  [DONE] {model_name}  ({elapsed / 60:.1f}m)", flush=True)
+    meta_path = out_root / model_name / "meta.json"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["elapsed_s"] = elapsed
+        return meta
+    return {"model_name": model_name, "error": "no meta.json", "elapsed_s": elapsed}
+
+
+def run_all(
     models: list[str],
     data_root: Path,
     out_root: Path,
@@ -84,94 +141,59 @@ def launch_all(
     lr: float,
     max_steps: int | None,
     schema_version: str | None,
-    no_pretrained: bool = False,
-) -> list[tuple]:
-    """Start one subprocess per model. Returns list of (name, proc, log_fh, log_path, out_dir, t0)."""
+    no_pretrained: bool,
+    max_parallel: int,
+) -> list[dict]:
+    """Run training jobs with a bounded concurrency pool.
+
+    max_parallel=1  → sequential (safe for GPUs with limited free VRAM).
+    max_parallel=4  → all four run simultaneously (recommended for H200).
+    """
     env = _build_env()
-    launched = []
-
-    for model_name in models:
-        out_dir = out_root / model_name
-        out_dir.mkdir(parents=True, exist_ok=True)
-        log_path = out_root / f"{model_name}.log"
-
-        cmd = [
-            "uv", "run", "--extra", "ml",
-            "python", "-m", "classifier.train",
-            "--model", model_name,
-            "--data", str(data_root),
-            "--out", str(out_dir),
-            "--epochs", str(epochs),
-            "--batch-size", str(batch_size),
-            "--lr", str(lr),
-        ]
-        if max_steps is not None:
-            cmd += ["--max-steps", str(max_steps)]
-        if schema_version is not None:
-            cmd += ["--schema-version", schema_version]
-        if no_pretrained:
-            cmd += ["--no-pretrained"]
-
-        log_fh = log_path.open("w", encoding="utf-8", buffering=1)
-        proc = subprocess.Popen(
-            cmd,
-            env=env,
-            cwd=str(REPO),
-            stdout=log_fh,
-            stderr=subprocess.STDOUT,
-        )
-        print(f"  [PID {proc.pid:>6}] {model_name}  ->  {log_path.name}", flush=True)
-        launched.append((model_name, proc, log_fh, log_path, out_dir, time.time()))
-
-    return launched
-
-
-def wait_all(launched: list[tuple]) -> list[dict]:
-    """Poll until every process finishes. Returns list of meta dicts."""
+    # Pre-build all commands
+    jobs = [
+        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained))
+        for m in models
+    ]
+    queue = list(jobs)
+    running: list[tuple] = []
     results: list[dict] = []
-    pending = list(launched)
     t_start = time.time()
 
     try:
-        while pending:
+        while queue or running:
+            # Fill up to max_parallel slots
+            while queue and len(running) < max_parallel:
+                model_name, cmd, log_path, out_dir = queue.pop(0)
+                running.append(_launch_one(model_name, cmd, log_path, env))
+
             time.sleep(15)
-            still_pending = []
-            for entry in pending:
-                model_name, proc, log_fh, log_path, out_dir, t0 = entry
-                retcode = proc.poll()
-                if retcode is None:
-                    still_pending.append(entry)
-                    continue
 
-                log_fh.close()
-                elapsed = time.time() - t0
-
-                if retcode != 0:
-                    print(f"  [FAIL] {model_name}  exit={retcode}  ({elapsed / 60:.1f}m)  log: {log_path.name}", flush=True)
-                    results.append({"model_name": model_name, "error": f"exit {retcode}", "elapsed_s": elapsed})
+            still_running = []
+            for entry in running:
+                if entry[1].poll() is None:
+                    still_running.append(entry)
                 else:
-                    print(f"  [DONE] {model_name}  ({elapsed / 60:.1f}m)", flush=True)
-                    meta_path = out_dir / "meta.json"
-                    if meta_path.exists():
-                        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                        meta["elapsed_s"] = elapsed
-                        results.append(meta)
-                    else:
-                        results.append({"model_name": model_name, "error": "no meta.json", "elapsed_s": elapsed})
+                    results.append(_collect(entry, out_root))
+            running = still_running
 
-            if still_pending:
-                names = ", ".join(e[0] for e in still_pending)
-                print(f"  [{(time.time() - t_start) / 60:.0f}m elapsed] running: {names}", flush=True)
-
-            pending = still_pending
+            if running:
+                names = ", ".join(e[0] for e in running)
+                queued = ", ".join(j[0] for j in queue)
+                status = f"running: {names}"
+                if queued:
+                    status += f"  |  queued: {queued}"
+                print(f"  [{(time.time() - t_start) / 60:.0f}m] {status}", flush=True)
 
     except KeyboardInterrupt:
-        print("\nInterrupted — terminating all training processes...", file=sys.stderr, flush=True)
-        for model_name, proc, log_fh, _, _, _ in pending:
+        print("\nInterrupted — terminating...", file=sys.stderr, flush=True)
+        for model_name, proc, log_fh, _, _ in running:
             proc.terminate()
             log_fh.close()
             print(f"  killed {model_name} (PID {proc.pid})", file=sys.stderr)
         sys.exit(1)
+
+    return results
 
     return results
 
@@ -252,6 +274,10 @@ def main() -> None:
         "--schema-version", default=None, metavar="VERSION",
         help="Label schema version, e.g. 'v2' → configs/schemas/v2.yaml. Required when training on v2 data.",
     )
+    ap.add_argument(
+        "--max-parallel", type=int, default=4, metavar="N",
+        help="max models running simultaneously (default: 4). Use 1 for sequential on memory-limited GPUs.",
+    )
     ap.add_argument("--no-pretrained", action="store_true", help="skip backbone weight download (smoke test only)")
     ap.add_argument("--install", action="store_true", help="pip-install ML deps before training")
     args = ap.parse_args()
@@ -274,20 +300,19 @@ def main() -> None:
     _check_data(data_root)
 
     if args.schema_version:
-        print(f"Schema:   v{args.schema_version} (configs/schemas/{args.schema_version}.yaml)")
+        print(f"Schema:   {args.schema_version} (configs/schemas/{args.schema_version}.yaml)")
     else:
         print("Schema:   default (configs/label_schema.yaml)")
+    print(f"Parallel: {args.max_parallel} model(s) at a time")
 
-    print(f"\nLaunching {len(args.models)} training jobs in parallel...")
-    launched = launch_all(
+    print(f"\nLaunching {len(args.models)} training jobs (max {args.max_parallel} concurrent)...")
+    results = run_all(
         args.models, data_root, out_root,
         args.epochs, args.batch_size, args.lr, args.max_steps,
         args.schema_version,
         no_pretrained=args.no_pretrained,
+        max_parallel=args.max_parallel,
     )
-
-    print("\nAll jobs running — polling every 15s...")
-    results = wait_all(launched)
 
     # Save comparison JSON
     comp_path = out_root / "teacher_comparison.json"
