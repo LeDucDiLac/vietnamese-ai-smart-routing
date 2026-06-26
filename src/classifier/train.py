@@ -266,6 +266,7 @@ def train(
     max_steps: int | None = None,
     schema_version: str | None = None,
     gradient_checkpointing: bool = False,
+    use_adafactor: bool = False,
 ) -> dict[str, Any]:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     data_dir = Path(data_dir)
@@ -313,7 +314,12 @@ def train(
         model.backbone.gradient_checkpointing_enable()
         print(f"[{time.strftime('%H:%M:%S')}] Gradient checkpointing enabled for {model_name}", flush=True)
     criterion = MultiTaskLoss(schema, reg_weight=reg_weight, class_weights=class_weights)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    if use_adafactor:
+        from transformers.optimization import Adafactor
+        optimizer = Adafactor(model.parameters(), lr=lr, relative_step=False, scale_parameter=False)
+        print(f"[{time.strftime('%H:%M:%S')}] Using Adafactor optimizer (memory-efficient)", flush=True)
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
     use_amp = torch.cuda.is_available() and device == "cuda"
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
@@ -494,6 +500,11 @@ def main() -> None:
         help="enable gradient checkpointing to halve activation memory (slower, use for large models like bgem3)",
     )
     ap.add_argument(
+        "--adafactor",
+        action="store_true",
+        help="use Adafactor optimizer instead of AdamW (~10x less optimizer memory, useful when GPU is near capacity)",
+    )
+    ap.add_argument(
         "--schema-version",
         default=None,
         help="label schema version to use, e.g. 'v2' → configs/schemas/v2.yaml (default: configs/label_schema.yaml)",
@@ -512,6 +523,7 @@ def main() -> None:
         pretrained=not args.no_pretrained,
         schema_version=args.schema_version,
         gradient_checkpointing=args.gradient_checkpointing,
+        use_adafactor=args.adafactor,
     )
     print(json.dumps(meta, indent=2, ensure_ascii=False))
 
