@@ -85,13 +85,14 @@ def _make_cmd(
     max_steps: int | None,
     schema_version: str | None,
     no_pretrained: bool,
+    python_cmd: list[str] | None = None,
 ) -> tuple[list[str], Path, Path]:
     out_dir = out_root / model_name
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_root / f"{model_name}.log"
+    runner = python_cmd if python_cmd else ["uv", "run", "--extra", "ml", "python"]
     cmd = [
-        "uv", "run", "--extra", "ml",
-        "python", "-m", "classifier.train",
+        *runner, "-m", "classifier.train",
         "--model", model_name,
         "--data", str(data_root),
         "--out", str(out_dir),
@@ -143,6 +144,7 @@ def run_all(
     schema_version: str | None,
     no_pretrained: bool,
     max_parallel: int,
+    python_cmd: list[str] | None = None,
 ) -> list[dict]:
     """Run training jobs with a bounded concurrency pool.
 
@@ -152,7 +154,7 @@ def run_all(
     env = _build_env()
     # Pre-build all commands
     jobs = [
-        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained))
+        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained, python_cmd))
         for m in models
     ]
     queue = list(jobs)
@@ -278,6 +280,12 @@ def main() -> None:
         "--max-parallel", type=int, default=4, metavar="N",
         help="max models running simultaneously (default: 4). Use 1 for sequential on memory-limited GPUs.",
     )
+    ap.add_argument(
+        "--python", default=None, metavar="CMD",
+        help="Python interpreter to use, e.g. 'python3' or '/usr/bin/python3'. "
+             "Default: 'uv run --extra ml python'. Use when PyTorch index is unreachable "
+             "and torch is already installed system-wide.",
+    )
     ap.add_argument("--no-pretrained", action="store_true", help="skip backbone weight download (smoke test only)")
     ap.add_argument("--install", action="store_true", help="pip-install ML deps before training")
     args = ap.parse_args()
@@ -306,12 +314,14 @@ def main() -> None:
     print(f"Parallel: {args.max_parallel} model(s) at a time")
 
     print(f"\nLaunching {len(args.models)} training jobs (max {args.max_parallel} concurrent)...")
+    python_cmd = args.python.split() if args.python else None
     results = run_all(
         args.models, data_root, out_root,
         args.epochs, args.batch_size, args.lr, args.max_steps,
         args.schema_version,
         no_pretrained=args.no_pretrained,
         max_parallel=args.max_parallel,
+        python_cmd=python_cmd,
     )
 
     # Save comparison JSON
