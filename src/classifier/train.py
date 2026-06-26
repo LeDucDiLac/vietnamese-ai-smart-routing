@@ -271,6 +271,15 @@ def train(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if device == "cuda":
+        # Disable cuDNN flash-attention graph executor — it fails under memory pressure.
+        # The math backend is slower but stable on all CUDA/cuDNN versions.
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+        torch.backends.cuda.enable_math_sdp(True)
+        import os as _os
+        _os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
     schema = load_label_schema(version=schema_version)
     # Load the matching complexity config: configs/schemas/<ver>-complexity.yaml if versioned.
     from config import CONFIGS_DIR
