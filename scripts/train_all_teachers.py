@@ -86,6 +86,7 @@ def _make_cmd(
     schema_version: str | None,
     no_pretrained: bool,
     python_cmd: list[str] | None = None,
+    gradient_checkpointing: bool = False,
 ) -> tuple[list[str], Path, Path]:
     out_dir = out_root / model_name
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +107,8 @@ def _make_cmd(
         cmd += ["--schema-version", schema_version]
     if no_pretrained:
         cmd += ["--no-pretrained"]
+    if gradient_checkpointing:
+        cmd += ["--gradient-checkpointing"]
     return cmd, log_path, out_dir
 
 
@@ -145,6 +148,7 @@ def run_all(
     no_pretrained: bool,
     max_parallel: int,
     python_cmd: list[str] | None = None,
+    gradient_checkpointing: bool = False,
 ) -> list[dict]:
     """Run training jobs with a bounded concurrency pool.
 
@@ -154,7 +158,7 @@ def run_all(
     env = _build_env()
     # Pre-build all commands
     jobs = [
-        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained, python_cmd))
+        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained, python_cmd, gradient_checkpointing))
         for m in models
     ]
     queue = list(jobs)
@@ -286,6 +290,8 @@ def main() -> None:
              "Default: 'uv run --extra ml python'. Use when PyTorch index is unreachable "
              "and torch is already installed system-wide.",
     )
+    ap.add_argument("--gradient-checkpointing", action="store_true",
+                    help="enable gradient checkpointing (halves activation memory, use for large models like bgem3)")
     ap.add_argument("--no-pretrained", action="store_true", help="skip backbone weight download (smoke test only)")
     ap.add_argument("--install", action="store_true", help="pip-install ML deps before training")
     args = ap.parse_args()
@@ -322,6 +328,7 @@ def main() -> None:
         no_pretrained=args.no_pretrained,
         max_parallel=args.max_parallel,
         python_cmd=python_cmd,
+        gradient_checkpointing=args.gradient_checkpointing,
     )
 
     # Save comparison JSON

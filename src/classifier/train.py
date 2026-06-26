@@ -265,6 +265,7 @@ def train(
     pretrained: bool = True,
     max_steps: int | None = None,
     schema_version: str | None = None,
+    gradient_checkpointing: bool = False,
 ) -> dict[str, Any]:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     data_dir = Path(data_dir)
@@ -308,6 +309,9 @@ def train(
         val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate)
 
     model = CustomModel(spec, schema, complexity, pretrained=pretrained).float().to(device)
+    if gradient_checkpointing and hasattr(model.backbone, "gradient_checkpointing_enable"):
+        model.backbone.gradient_checkpointing_enable()
+        print(f"[{time.strftime('%H:%M:%S')}] Gradient checkpointing enabled for {model_name}", flush=True)
     criterion = MultiTaskLoss(schema, reg_weight=reg_weight, class_weights=class_weights)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
@@ -485,6 +489,11 @@ def main() -> None:
         help="build backbone from config only (fast smoke test, no download)",
     )
     ap.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="enable gradient checkpointing to halve activation memory (slower, use for large models like bgem3)",
+    )
+    ap.add_argument(
         "--schema-version",
         default=None,
         help="label schema version to use, e.g. 'v2' → configs/schemas/v2.yaml (default: configs/label_schema.yaml)",
@@ -502,6 +511,7 @@ def main() -> None:
         max_steps=args.max_steps,
         pretrained=not args.no_pretrained,
         schema_version=args.schema_version,
+        gradient_checkpointing=args.gradient_checkpointing,
     )
     print(json.dumps(meta, indent=2, ensure_ascii=False))
 
