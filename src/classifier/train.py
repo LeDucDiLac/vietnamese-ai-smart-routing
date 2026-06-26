@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -309,18 +310,32 @@ def train(
     total_batches = len(train_dl)
     total_steps = min(epochs * total_batches, max_steps) if max_steps else epochs * total_batches
     t_train_start = time.time()
+    is_interactive = sys.stdout.isatty()
+    log_every = 10  # print a structured line every N steps when writing to a log file
+
+    def _ts() -> str:
+        return time.strftime("%H:%M:%S")
+
+    def _log(msg: str) -> None:
+        print(f"[{_ts()}] {msg}", flush=True)
+
+    _log(f"START  model={model_name}  device={device}  epochs={epochs}  "
+         f"batches/epoch={total_batches}  total_steps={total_steps}  bs={batch_size}")
 
     model.train()
-    epoch_bar = tqdm(range(epochs), desc="Training", unit="epoch", ncols=100)
+    epoch_bar = tqdm(range(epochs), desc="Training", unit="epoch", ncols=100,
+                     disable=not is_interactive)
     for epoch in epoch_bar:
+        _log(f"EPOCH {epoch + 1}/{epochs} begin")
         batch_bar = tqdm(
             train_dl,
             desc=f"  Epoch {epoch + 1}/{epochs}",
             unit="batch",
             leave=True,
             ncols=100,
+            disable=not is_interactive,
         )
-        for batch in batch_bar:
+        for batch_idx, batch in enumerate(batch_bar):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             batch["task_idx"] = batch["task_idx"].to(device)
@@ -343,7 +358,18 @@ def train(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
-            batch_bar.set_postfix(loss=f"{parts['loss']:.4f}")
+            if is_interactive:
+                batch_bar.set_postfix(loss=f"{parts['loss']:.4f}")
+            elif step % log_every == 0 or step == 0:
+                elapsed = time.time() - t_train_start
+                eta_s = (elapsed / (step + 1)) * (total_steps - step - 1)
+                _log(
+                    f"  E{epoch + 1}/{epochs} | batch {batch_idx + 1}/{total_batches} | "
+                    f"step {step + 1}/{total_steps} | "
+                    f"loss={parts['loss']:.4f} task={parts['task_loss']:.4f} reg={parts['reg_loss']:.4f} | "
+                    f"elapsed={elapsed / 60:.1f}m eta={eta_s / 60:.1f}m"
+                )
+
             if step % 20 == 0:
                 parts["epoch"] = epoch
                 parts["step"] = step
@@ -355,10 +381,12 @@ def train(
         # Validation loss pass
         val_loss = math.nan
         if val_dl is not None:
+            _log(f"EPOCH {epoch + 1}/{epochs} val loss pass...")
             model.eval()
             val_loss_sum = 0.0
             val_steps = 0
-            val_bar = tqdm(val_dl, desc="  Val", unit="batch", leave=False, ncols=100)
+            val_bar = tqdm(val_dl, desc="  Val", unit="batch", leave=False, ncols=100,
+                           disable=not is_interactive)
             with torch.no_grad():
                 for vbatch in val_bar:
                     vbatch["input_ids"] = vbatch["input_ids"].to(device)
@@ -372,7 +400,8 @@ def train(
                         vloss, _ = criterion(vout, vbatch)
                     val_loss_sum += vloss.item()
                     val_steps += 1
-                    val_bar.set_postfix(loss=f"{val_loss_sum / val_steps:.4f}")
+                    if is_interactive:
+                        val_bar.set_postfix(loss=f"{val_loss_sum / val_steps:.4f}")
             val_loss = val_loss_sum / val_steps if val_steps else math.nan
             model.train()
 
@@ -380,10 +409,16 @@ def train(
         steps_remaining = total_steps - step
         eta_s = (elapsed / step * steps_remaining) if step > 0 else 0.0
         last_loss = history[-1]["loss"] if history else math.nan
-        epoch_bar.set_postfix(
-            loss=f"{last_loss:.4f}",
-            val_loss=f"{val_loss:.4f}",
-            eta=f"{eta_s / 60:.1f}m",
+        if is_interactive:
+            epoch_bar.set_postfix(
+                loss=f"{last_loss:.4f}",
+                val_loss=f"{val_loss:.4f}",
+                eta=f"{eta_s / 60:.1f}m",
+            )
+        _log(
+            f"EPOCH {epoch + 1}/{epochs} done | "
+            f"loss={last_loss:.4f} val_loss={val_loss:.4f} | "
+            f"elapsed={elapsed / 60:.1f}m eta={eta_s / 60:.1f}m"
         )
         if history:
             history[-1]["val_loss"] = val_loss
