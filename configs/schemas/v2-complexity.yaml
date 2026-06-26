@@ -1,0 +1,20 @@
+# Complexity scoring config for label schema v2.
+# 3 routing-functional dimensions (reduced from 6 NVIDIA dims).
+# Weights reflect routing relevance: reasoning depth is the primary cost driver,
+# domain knowledge is the primary quality driver, instruction precision moderates both.
+
+weights_map:
+  reasoning_depth: 0.45
+  domain_knowledge: 0.35
+  instruction_precision: 0.20
+
+divisor_map:
+  reasoning_depth: 1.0
+  domain_knowledge: 1.0
+  instruction_precision: 1.0
+
+target_sizes:
+  task_type: 6
+  reasoning_depth: 1
+  domain_knowledge: 1
+  instruction_precision: 1

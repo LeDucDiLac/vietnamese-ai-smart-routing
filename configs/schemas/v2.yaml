@@ -1,0 +1,36 @@
+# Label schema v2 — see feature_proposal.md for full rationale.
+#
+# Key changes from v1:
+#   - Task types: 11 NVIDIA classes → 6 routing-functional classes
+#   - Complexity dims: 6 NVIDIA dims → 3 validated routing dims
+#
+# DO NOT reorder task_types — order is the classification head's class index.
+
+task_types:
+  - Knowledge Retrieval / QA
+  - Reasoning / Problem Solving
+  - Summarization
+  - Content Creation
+  - Code
+  - Conversation
+
+task_types_vi:
+  Knowledge Retrieval / QA: "Truy xuất kiến thức / Hỏi đáp (câu hỏi có đáp án tồn tại, tra cứu thông tin, đọc hiểu văn bản)"
+  Reasoning / Problem Solving: "Suy luận / Giải quyết vấn đề (suy luận nhiều bước, toán học, logic, phân tích)"
+  Summarization: "Tóm tắt (nén hoặc chuyển đổi văn bản có sẵn thành dạng ngắn hơn hoặc có cấu trúc)"
+  Content Creation: "Tạo nội dung (sinh văn bản mới: viết bài, động não, viết lại, sáng tạo)"
+  Code: "Lập trình (sinh mã, gỡ lỗi, giải thích code, viết script)"
+  Conversation: "Hội thoại (trò chuyện thông thường, chào hỏi, trao đổi đơn giản không cần kiến thức)"
+
+# 3 complexity dimensions, each scored [0.0, 1.0].
+# Chosen because they (a) appear consistently in routing literature and
+# (b) map to real capability differences between models in an arbitrary pool.
+complexity_dimensions:
+  - reasoning_depth
+  - domain_knowledge
+  - instruction_precision
+
+complexity_dimensions_vi:
+  reasoning_depth: "Độ sâu suy luận (mức độ cần suy luận nhiều bước, chuỗi tư duy, hoặc dẫn xuất logic)"
+  domain_knowledge: "Kiến thức chuyên sâu (mức độ cần chuyên môn vượt ngoài kiến thức phổ thông)"
+  instruction_precision: "Độ chính xác hướng dẫn (mức độ tuân thủ chặt chẽ các ràng buộc về định dạng, cấu trúc, độ dài, phong cách)"

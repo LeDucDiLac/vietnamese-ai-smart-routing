@@ -1,19 +1,116 @@
-# Classifier model configs for both sizes (see plan §2).
+# Classifier model configs.
+#
+# Language requirement
+# ────────────────────
+# Expected traffic: ~80% Vietnamese, ~20% English.
+# ALL backbones MUST support both languages — Vietnamese-only models
+# (PhoBERT, ViDeBERTa, viBERT, etc.) are explicitly excluded.
+# Confirmed multilingual coverage:
+#   BGE-M3:  170+ langs including vi + en (explicitly listed in training data)
+#   mmBERT:  1800+ langs (high-resource EN + VI both in training mix)
+#   Granite: 200+ langs with enhanced support for 52 (includes vi + en)
+#   mDeBERTa: 100 langs (multilingual baseline, includes vi + en)
+#
+# Backbone experiment plan
+# ────────────────────────
+# We compare three teacher backbones and two student backbones, all multilingual
+# and published 2024-2026.  One Kaggle run per row; the winner becomes the
+# production teacher, its matching small variant becomes the production student.
+#
+# Teacher candidates            Backbone                                              Params  Year  Notes
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# vi-router-quality             microsoft/mdeberta-v3-base                            278M   2021  current baseline; absolute PE
+# vi-router-quality-mmbert      jhu-clsp/mmBERT-base                                  ~276M  2025  ModernBERT+multilingual, 1800+ langs, RoPE, 2× XLM-R speed
+# vi-router-quality-bgem3       BAAI/bge-m3                                           568M   2024  MTEB leader, 170+ langs, hybrid dense/sparse
+# vi-router-quality-granite     ibm-granite/granite-embedding-311m-multilingual-r2    311M   2026  ModernBERT-based, 200+ langs, 32k ctx, Apache 2.0
+#
+# Student candidates            Backbone                                              Params  Year  Notes
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# vi-router-fast                microsoft/Multilingual-MiniLM-L12-H384                118M   2021  current baseline; absolute PE
+# vi-router-fast-mmbert         jhu-clsp/mmBERT-small                                 ~70M   2025  same modern arch as mmBERT-base, fastest
+# vi-router-fast-granite        ibm-granite/granite-embedding-97m-multilingual-r2     97M    2026  best sub-100M MTEB retrieval, 32k ctx
+#
+# VN-MTEB (Jul 2025) key finding: RoPE positional embeddings outperform
+# absolute PE on Vietnamese.  mmBERT and Granite use RoPE; mDeBERTa and
+# MiniLM use absolute PE — this is a likely quality differentiator.
 
-# Quality model — used offline for labeling/eval and non-latency-critical traffic.
+# ── Current production models (baseline) ────────────────────────────────────
+
 vi-router-quality:
   backbone: microsoft/mdeberta-v3-base
   max_tokens: 512
-  pooling: mean          # mean-pool the last hidden state (NVIDIA parity)
+  pooling: mean
   dropout: 0.1
-  head_hidden: 0         # 0 = linear head directly off pooled rep; >0 inserts an MLP
+  head_hidden: 0
 
-# Fast model — distilled student, INT8 ONNX, serves the <=50ms CPU path (mandatory per feedback).
 vi-router-fast:
   backbone: microsoft/Multilingual-MiniLM-L12-H384
-  max_tokens: 256        # shorter cap to hit the CPU latency budget
+  max_tokens: 256
   pooling: mean
   dropout: 0.1
   head_hidden: 0
   distill_from: vi-router-quality
-  quantize: int8         # dynamic INT8 at ONNX export
+  quantize: int8
+
+# ── Teacher experiment: mmBERT-base (Sep 2025) ──────────────────────────────
+# JHU-CLSP + HuggingFace. ModernBERT architecture extended to 1800+ languages.
+# Trained on 3T tokens; beats XLM-R on classification, embedding, retrieval.
+# Uses RoPE + Flash Attention → 2× faster inference than mDeBERTa at equal depth.
+# Max context: 8192 tokens (we cap at 512 to match the benchmark).
+
+vi-router-quality-mmbert:
+  backbone: jhu-clsp/mmBERT-base
+  max_tokens: 512
+  pooling: cls            # ModernBERT family uses CLS token pooling
+  dropout: 0.1
+  head_hidden: 0
+
+# ── Teacher experiment: BGE-M3 (Feb 2024) ───────────────────────────────────
+# BAAI. Still competitive on MTEB 2025-2026. 568M params, 100+ languages.
+# Uniquely supports dense + sparse + ColBERT retrieval modes.
+# Larger than our other candidates — expect slower training but strong quality.
+
+vi-router-quality-bgem3:
+  backbone: BAAI/bge-m3
+  max_tokens: 512
+  pooling: cls
+  dropout: 0.1
+  head_hidden: 0
+
+# ── Teacher experiment: Granite Embedding 311M R2 (May 2026) ────────────────
+# IBM. ModernBERT-based encoder, 311M params, 200+ languages, 32k context.
+# Best multilingual retrieval under 400M on MTEB as of release. Apache 2.0.
+# RoPE + Flash Attention; expected to be faster than mDeBERTa on long prompts.
+
+vi-router-quality-granite:
+  backbone: ibm-granite/granite-embedding-311m-multilingual-r2
+  max_tokens: 512
+  pooling: cls
+  dropout: 0.1
+  head_hidden: 0
+
+# ── Student experiment: mmBERT-small (Sep 2025) ─────────────────────────────
+# Smallest mmBERT variant. Same modern architecture (RoPE, Flash Attention).
+# Primary student candidate when teacher is vi-router-quality-mmbert.
+
+vi-router-fast-mmbert:
+  backbone: jhu-clsp/mmBERT-small
+  max_tokens: 256
+  pooling: cls
+  dropout: 0.1
+  head_hidden: 0
+  distill_from: vi-router-quality-mmbert
+  quantize: int8
+
+# ── Student experiment: Granite Embedding 97M R2 (May 2026) ─────────────────
+# IBM. Best sub-100M multilingual retrieval on MTEB. 97M params, 384-dim vectors.
+# RoPE, 32k context, Apache 2.0. Primary student candidate for Granite teacher.
+
+vi-router-fast-granite:
+  backbone: ibm-granite/granite-embedding-97m-multilingual-r2
+  max_tokens: 256
+  pooling: cls
+  dropout: 0.1
+  head_hidden: 0
+  distill_from: vi-router-quality-granite
+  quantize: int8

@@ -60,6 +60,8 @@ class Source:
     split: str = "train"
     config: str | None = None
     task_hint: str | None = None  # provenance weak label (a task_type id)
+    trust_remote_code: bool = False  # ignored — datasets library removed this; kept for YAML compat
+    max_rows: int | None = None      # per-source override for --max-per-source
 
 
 # Fallback if configs/data_sources.yaml is missing (kept minimal; the YAML is
@@ -87,6 +89,8 @@ def load_sources(path: str | Path | None = None) -> list[Source]:
                 split=s.get("split", "train"),
                 config=s.get("config"),
                 task_hint=s.get("task_hint"),
+                trust_remote_code=bool(s.get("trust_remote_code", False)),
+                max_rows=s.get("max_rows"),
             )
         )
     return sources
@@ -247,6 +251,14 @@ def crawl_source(
     print(f"  [ok]   {src.hf_id}: {kept} kept (scanned ~{seen_source})")
 
 
+def _safe_id(hf_id: str, config: str | None = None) -> str:
+    """HF dataset ID → safe filename stem (slashes → double-underscore)."""
+    name = hf_id.replace("/", "__")
+    if config:
+        name = f"{name}__{config}"
+    return name
+
+
 def crawl(
     out_path: str | Path,
     *,
@@ -257,14 +269,25 @@ def crawl(
     max_chars: int = 4000,
     label_mode: str = "none",
     use_fasttext: bool = False,
+    source_dir: str | Path | None = None,
+    skip_existing: bool = False,
 ) -> dict[str, Any]:
     """Crawl all sources into one JSONL; dedupe; enforce per-source & per-label caps.
+
+    When ``source_dir`` is given, each source is also written to its own
+    ``{source_dir}/{safe_id}.jsonl`` file alongside the merged output.  Set
+    ``skip_existing=True`` to skip re-downloading sources whose per-source file
+    already exists (incremental re-crawl when adding new sources).
 
     Returns a report dict (counts + per-label coverage + uncovered task types).
     """
     sources = sources if sources is not None else load_sources()
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    src_dir = Path(source_dir) if source_dir else None
+    if src_dir:
+        src_dir.mkdir(parents=True, exist_ok=True)
 
     detector = None
     if use_fasttext:  # pragma: no cover - optional path
@@ -286,33 +309,54 @@ def crawl(
 
     with out.open("w", encoding="utf-8") as fh:
         for src in sources:
-            for row in crawl_source(
-                src,
-                max_rows=max_per_source,
-                min_chars=min_chars,
-                max_chars=max_chars,
-                use_fasttext=use_fasttext,
-                label_mode=label_mode,
-                detector=detector,
-            ):
-                # near-dup key: normalized prefix
-                key = " ".join(row["text"].lower().split())[:200]
-                if key in seen:
-                    continue
+            src_path = src_dir / f"{_safe_id(src.hf_id, src.config)}.jsonl" if src_dir else None
+            use_cache = skip_existing and src_path is not None and src_path.exists()
 
-                # per-label quota (provenance mode)
-                label = row.get("task_type")
-                if per_label is not None and label is not None:
-                    if per_label_count.get(label, 0) >= per_label:
+            src_max = src.max_rows if src.max_rows is not None else max_per_source
+            if use_cache:
+                print(f"  [cached] {src.hf_id}: reading from {src_path.name}")  # type: ignore[union-attr]
+                row_iter: Iterable[dict[str, Any]] = (
+                    json.loads(line)
+                    for line in src_path.open(encoding="utf-8")  # type: ignore[union-attr]
+                    if line.strip()
+                )
+            else:
+                row_iter = crawl_source(
+                    src,
+                    max_rows=src_max,
+                    min_chars=min_chars,
+                    max_chars=max_chars,
+                    use_fasttext=use_fasttext,
+                    label_mode=label_mode,
+                    detector=detector,
+                )
+
+            src_fh = src_path.open("w", encoding="utf-8") if (src_path and not use_cache) else None
+            try:
+                for row in row_iter:
+                    # near-dup key: normalized prefix
+                    key = " ".join(row["text"].lower().split())[:200]
+                    if key in seen:
                         continue
-                    per_label_count[label] = per_label_count.get(label, 0) + 1
 
-                seen.add(key)
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-                written += 1
-                if label is not None:
-                    label_dist[label] = label_dist.get(label, 0) + 1
-                source_dist[row["source"]] = source_dist.get(row["source"], 0) + 1
+                    # per-label quota (provenance mode)
+                    label = row.get("task_type")
+                    if per_label is not None and label is not None:
+                        if per_label_count.get(label, 0) >= per_label:
+                            continue
+                        per_label_count[label] = per_label_count.get(label, 0) + 1
+
+                    seen.add(key)
+                    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                    if src_fh:
+                        src_fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                    written += 1
+                    if label is not None:
+                        label_dist[label] = label_dist.get(label, 0) + 1
+                    source_dist[row["source"]] = source_dist.get(row["source"], 0) + 1
+            finally:
+                if src_fh:
+                    src_fh.close()
 
     report: dict[str, Any] = {
         "written": written,
@@ -354,6 +398,10 @@ def main() -> None:
     ap.add_argument("--label", choices=["none", "provenance"], default="none",
                     help="weak-label rows from source task_hint")
     ap.add_argument("--use-fasttext", action="store_true", help="use fastText langdetect")
+    ap.add_argument("--source-dir", default=None,
+                    help="write per-source JSONL files to this directory alongside merged output")
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="skip re-downloading sources whose per-source file already exists")
     args = ap.parse_args()
 
     crawl(
@@ -365,6 +413,8 @@ def main() -> None:
         max_chars=args.max_chars,
         label_mode=args.label,
         use_fasttext=args.use_fasttext,
+        source_dir=args.source_dir,
+        skip_existing=args.skip_existing,
     )
 
 

@@ -177,8 +177,13 @@ class ModelRegistry(BaseModel):
 
 
 @functools.lru_cache(maxsize=None)
-def load_label_schema(path: str | None = None) -> LabelSchema:
-    p = Path(path) if path else CONFIGS_DIR / "label_schema.yaml"
+def load_label_schema(path: str | None = None, version: str | None = None) -> LabelSchema:
+    if path:
+        p = Path(path)
+    elif version:
+        p = CONFIGS_DIR / "schemas" / f"{version}.yaml"
+    else:
+        p = CONFIGS_DIR / "label_schema.yaml"
     return LabelSchema(**_read_yaml(p))
 
 

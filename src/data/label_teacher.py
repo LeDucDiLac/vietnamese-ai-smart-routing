@@ -226,7 +226,7 @@ def _nvidia_pred_to_row(
     row: dict[str, Any] = {
         "text": text,
         "task_type": _match_task(task, schema),
-        "source": "teacher_nvidia",
+        "label_source": "teacher_nvidia",
         "translated": translated,
     }
     for dim in schema.complexity_dimensions:
@@ -274,7 +274,9 @@ def label_with_llm(
             print(f"  LLM label failed: {exc}; skipping row")
             continue
         rec["text"] = r["text"]
-        rec["source"] = "teacher_llm"
+        rec["label_source"] = "teacher_llm"
+        if r.get("source"):
+            rec["hf_source"] = r["source"]
         labeled.append(rec)
     return labeled
 
@@ -478,7 +480,9 @@ def label_with_anthropic(
             print(f"  giving up on row after retries ({exc}); skipping")
             return None
         rec["text"] = row["text"]
-        rec["source"] = "teacher_anthropic"
+        rec["label_source"] = "teacher_anthropic"
+        if row.get("source"):
+            rec["hf_source"] = row["source"]
         return rec
 
     with out.open("a", encoding="utf-8") as fh, ThreadPoolExecutor(max_workers=workers) as ex:
@@ -564,7 +568,8 @@ def reconcile(
             merged = {
                 "text": nv["text"],
                 "task_type": nv["task_type"],
-                "source": "teacher_agreed",
+                "label_source": "teacher_agreed",
+                "hf_source": nv.get("hf_source") or llm.get("hf_source"),
             }
             for d in schema.complexity_dimensions:
                 merged[d] = (float(nv.get(d, 0.0)) + float(llm.get(d, 0.0))) / 2.0

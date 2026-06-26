@@ -33,6 +33,10 @@ data = [
     "huggingface-hub>=0.23",
     "fasttext-langdetect>=1.0",
 ]
+# LLM API labeling (DeepSeek, OpenAI-compatible endpoints).
+llm = [
+    "openai>=1.30",
+]
 
 [dependency-groups]
 dev = [
@@ -46,6 +50,23 @@ where = ["src"]
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+# ---------------------------------------------------------------------------
+# uv: CUDA-enabled torch from the PyTorch index.
+# torch>=2.2 in [ml] resolves to the cu126 wheel on Linux/Windows;
+# macOS gets the standard CPU wheel from PyPI as a fallback.
+# On the H200 server: `uv sync --extra ml` is all that's needed.
+# ---------------------------------------------------------------------------
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu126" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
 
 [tool.ruff]
 line-length = 100

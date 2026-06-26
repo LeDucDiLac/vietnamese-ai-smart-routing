@@ -263,14 +263,22 @@ def train(
     device: str | None = None,
     pretrained: bool = True,
     max_steps: int | None = None,
+    schema_version: str | None = None,
 ) -> dict[str, Any]:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     data_dir = Path(data_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    schema = load_label_schema()
-    complexity = load_complexity()
+    schema = load_label_schema(version=schema_version)
+    # Load the matching complexity config: configs/schemas/<ver>-complexity.yaml if versioned.
+    from config import CONFIGS_DIR
+    complexity_path = (
+        str(CONFIGS_DIR / "schemas" / f"{schema_version}-complexity.yaml")
+        if schema_version
+        else None
+    )
+    complexity = load_complexity(path=complexity_path)
     cfg = load_model_configs()[model_name]
     spec = ModelSpec.from_config(cfg)
 
@@ -388,6 +396,14 @@ def train(
         val_metrics = evaluate(model, val_dl, schema, device)
         val_metrics["val_loss"] = history[-1].get("val_loss", math.nan) if history else math.nan
 
+    # Final test metrics (if test.jsonl is present alongside train/val)
+    test_metrics: dict[str, Any] = {}
+    test_path = data_dir / "test.jsonl"
+    if test_path.exists():
+        test_ds = PromptDataset(test_path, schema)
+        test_dl_eval = DataLoader(test_ds, batch_size=batch_size, shuffle=False, collate_fn=collate)
+        test_metrics = {f"test_{k}": v for k, v in evaluate(model, test_dl_eval, schema, device).items()}
+
     # Persist weights + the spec needed to rebuild for inference/distill.
     ckpt = out_dir / "model.pt"
     torch.save(model.state_dict(), ckpt)
@@ -400,6 +416,7 @@ def train(
         "steps": step,
         "final_loss": history[-1]["loss"] if history else math.nan,
         **val_metrics,
+        **test_metrics,
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     (out_dir / "history.jsonl").write_text(
@@ -423,6 +440,11 @@ def main() -> None:
         action="store_true",
         help="build backbone from config only (fast smoke test, no download)",
     )
+    ap.add_argument(
+        "--schema-version",
+        default=None,
+        help="label schema version to use, e.g. 'v2' → configs/schemas/v2.yaml (default: configs/label_schema.yaml)",
+    )
     args = ap.parse_args()
 
     meta = train(
@@ -435,6 +457,7 @@ def main() -> None:
         reg_weight=args.reg_weight,
         max_steps=args.max_steps,
         pretrained=not args.no_pretrained,
+        schema_version=args.schema_version,
     )
     print(json.dumps(meta, indent=2, ensure_ascii=False))
 

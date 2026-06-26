@@ -26,7 +26,8 @@ sources:
   - id: bkai-foundation-models/vi-alpaca
     text_fields: [instruction, input]
     task_hint: text_generation
-    note: "Vietnamese Alpaca instructions; broad task mix"
+    max_rows: 50000
+    note: "Vietnamese Alpaca instructions; broad task mix — 50k cap (full dataset)"
 
   - id: vilm/OpenOrca-Viet
     text_fields: [question, instruction]
@@ -54,7 +55,11 @@ sources:
   - id: uitnlp/vietnamese_students_feedback
     text_fields: [sentence]
     task_hint: classification
-    note: "UIT student feedback; sentiment/topic classification"
+    note: >
+      UIT student feedback; sentiment/topic classification. HF loading script is
+      broken (datasets library dropped script support). Data is pre-downloaded from
+      Google Drive into data/raw/sources/uitnlp__vietnamese_students_feedback.jsonl
+      — crawl reads from that cache file via --skip-existing.
 
   # --- General text / domain coverage ---
   - id: vietgpt/wikipedia_vi

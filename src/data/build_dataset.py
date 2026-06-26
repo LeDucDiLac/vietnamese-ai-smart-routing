@@ -25,6 +25,8 @@ import argparse
 import hashlib
 import json
 import random
+import shutil
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -66,9 +68,14 @@ def validate_row(row: dict[str, Any], schema: LabelSchema) -> dict[str, Any]:
         val = float(row.get(dim, 0.0))
         # complexity dims are bounded [0,1]
         clean[dim] = max(0.0, min(1.0, val))
-    # keep provenance if present (source teacher, agreement, etc.)
-    if "source" in row:
-        clean["source"] = row["source"]
+    # keep labeling provenance
+    if "label_source" in row:
+        clean["label_source"] = row["label_source"]
+    elif "source" in row:                          # legacy labeled.jsonl (pre-fix)
+        clean["label_source"] = row["source"]
+    # keep original HF dataset source
+    if "hf_source" in row:
+        clean["hf_source"] = row["hf_source"]
     return clean
 
 
@@ -120,6 +127,7 @@ def build(
     silver_eval_frac: float = 0.1,
     seed: int = 13,
     skip_bad: bool = True,
+    version: str | None = None,
 ) -> dict[str, int]:
     """Build train/val/test splits.
 
@@ -132,11 +140,19 @@ def build(
     - ``val_frac``: fraction of the eval pool sent to validation (rest -> test).
     - ``silver_eval_frac``: per-class fraction of silver held out for eval when
       gold doesn't already cover that class. Set 0.0 to disable (gold-only eval).
+    - ``version``: if given (e.g. ``"v1"``), writes outputs to ``out_dir/v1/``
+      as the primary location, then copies to ``out_dir/`` root as "current" for
+      backward compatibility with training scripts.  Registry is kept at
+      ``out_dir/versions.json``.
     """
     schema = load_label_schema()
     rng = random.Random(seed)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    # Primary write target: versioned subdir when version is set, root otherwise.
+    write_dir = out / version if version else out
+    write_dir.mkdir(parents=True, exist_ok=True)
 
     silver = _load_and_validate(silver_paths, schema, skip_bad=skip_bad)
     gold = _load_and_validate(gold_paths, schema, skip_bad=skip_bad)
@@ -190,7 +206,7 @@ def build(
     silver_clean = train_rows  # train output
 
     def _write(name: str, rows: list[dict[str, Any]]) -> int:
-        path = out / name
+        path = write_dir / name
         with path.open("w", encoding="utf-8") as fh:
             for r in rows:
                 fh.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -209,21 +225,54 @@ def build(
         return d
 
     n_silver_holdout = sum(1 for r in val_rows + test_rows if r.get("eval_source") == "silver_holdout")
-    (out / "build_report.json").write_text(
-        json.dumps(
-            {
-                "counts": counts,
-                "eval_silver_holdout": n_silver_holdout,
-                "eval_gold": len(gold_clean),
-                "train_task_dist": _dist(silver_clean),
-                "val_task_dist": _dist(val_rows),
-                "test_task_dist": _dist(test_rows),
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
+    report: dict[str, Any] = {
+        "counts": counts,
+        "eval_silver_holdout": n_silver_holdout,
+        "eval_gold": len(gold_clean),
+        "train_task_dist": _dist(silver_clean),
+        "val_task_dist": _dist(val_rows),
+        "test_task_dist": _dist(test_rows),
+    }
+    if version:
+        report["version"] = version
+    (write_dir / "build_report.json").write_text(
+        json.dumps(report, indent=2, ensure_ascii=False)
     )
+
+    if version:
+        # Mirror to root for backward compat with training scripts that expect
+        # data/processed/train.jsonl (not data/processed/v1/train.jsonl).
+        _FILES = ("train.jsonl", "val.jsonl", "test.jsonl", "build_report.json")
+        for fname in _FILES:
+            shutil.copy2(write_dir / fname, out / fname)
+        _update_version_registry(out, version, report, silver_paths, gold_paths)
+
     return counts
+
+
+def _update_version_registry(
+    out: Path,
+    version: str,
+    report: dict[str, Any],
+    silver_paths: list[str],
+    gold_paths: list[str],
+) -> None:
+    """Update versions.json registry; versioned files are already written by build()."""
+    versions_path = out / "versions.json"
+    registry: dict[str, Any] = {}
+    if versions_path.exists():
+        registry = json.loads(versions_path.read_text(encoding="utf-8"))
+
+    registry.setdefault("versions", {})[version] = {
+        "created_at": str(date.today()),
+        "silver": silver_paths,
+        "gold": gold_paths,
+        "counts": report["counts"],
+        "train_task_dist": report["train_task_dist"],
+    }
+    registry["current"] = version
+    versions_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False))
+    print(f"  versioned snapshot → {out / version}  (registry: {versions_path})")
 
 
 def main() -> None:
@@ -240,6 +289,9 @@ def main() -> None:
     )
     ap.add_argument("--seed", type=int, default=13)
     ap.add_argument("--strict", action="store_true", help="fail on first bad row")
+    ap.add_argument("--version", default=None,
+                    help="version tag (e.g. v1, v2); copies outputs to out/VERSION/ "
+                         "and updates out/versions.json registry")
     args = ap.parse_args()
 
     counts = build(
@@ -250,6 +302,7 @@ def main() -> None:
         silver_eval_frac=args.silver_eval_frac,
         seed=args.seed,
         skip_bad=not args.strict,
+        version=args.version,
     )
     print(json.dumps(counts, indent=2, ensure_ascii=False))
 

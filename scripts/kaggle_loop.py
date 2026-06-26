@@ -10,7 +10,7 @@ Flags:
     --skip-push     Skip git commit+push (useful if already pushed)
     --smoke-steps   Max training steps for the local smoke test (default: 20)
     --poll-interval Seconds between Kaggle status polls (default: 60)
-    --timeout       Max seconds to wait for Kaggle run (default: 7200 = 2h)
+    --timeout       Max seconds to wait for Kaggle run (default: 21600 = 6h)
 """
 import argparse
 import json
@@ -163,7 +163,7 @@ def main() -> None:
     ap.add_argument("--skip-trigger", action="store_true", help="Skip kaggle kernels push (poll already-running kernel)")
     ap.add_argument("--smoke-steps", type=int, default=20, help="Steps for local smoke test")
     ap.add_argument("--poll-interval", type=int, default=60, help="Seconds between polls")
-    ap.add_argument("--timeout", type=int, default=7200, help="Max wait seconds for Kaggle run")
+    ap.add_argument("--timeout", type=int, default=21600, help="Max wait seconds for Kaggle run")
     args = ap.parse_args()
 
     # 1. local smoke test
