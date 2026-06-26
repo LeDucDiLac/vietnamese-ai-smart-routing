@@ -21,6 +21,7 @@ ml = [
     "onnx>=1.16",
     "onnxruntime>=1.18",
     "optimum[onnxruntime]>=1.20",
+    "mlflow>=2.13",
 ]
 # Serving the routing endpoint.
 serve = [

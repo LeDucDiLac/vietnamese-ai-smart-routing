@@ -112,6 +112,10 @@ def _make_cmd(
         cmd += ["--gradient-checkpointing"]
     if use_adafactor:
         cmd += ["--adafactor"]
+    if mlflow_experiment:
+        cmd += ["--mlflow-experiment", mlflow_experiment]
+    if mlflow_tracking_uri:
+        cmd += ["--mlflow-tracking-uri", mlflow_tracking_uri]
     return cmd, log_path, out_dir
 
 
@@ -153,6 +157,8 @@ def run_all(
     python_cmd: list[str] | None = None,
     gradient_checkpointing: bool = False,
     use_adafactor: bool = False,
+    mlflow_experiment: str = "vi-smart-routing",
+    mlflow_tracking_uri: str | None = None,
 ) -> list[dict]:
     """Run training jobs with a bounded concurrency pool.
 
@@ -162,7 +168,7 @@ def run_all(
     env = _build_env()
     # Pre-build all commands
     jobs = [
-        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained, python_cmd, gradient_checkpointing, use_adafactor))
+        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained, python_cmd, gradient_checkpointing, use_adafactor, mlflow_experiment, mlflow_tracking_uri))
         for m in models
     ]
     queue = list(jobs)
@@ -298,6 +304,10 @@ def main() -> None:
                     help="enable gradient checkpointing (halves activation memory, use for large models like bgem3)")
     ap.add_argument("--adafactor", action="store_true",
                     help="use Adafactor optimizer (~10x less optimizer memory than AdamW)")
+    ap.add_argument("--mlflow-experiment", default="vi-smart-routing",
+                    help="MLflow experiment name (default: vi-smart-routing)")
+    ap.add_argument("--mlflow-tracking-uri", default=None,
+                    help="MLflow tracking URI (default: local ./mlruns)")
     ap.add_argument("--no-pretrained", action="store_true", help="skip backbone weight download (smoke test only)")
     ap.add_argument("--install", action="store_true", help="pip-install ML deps before training")
     args = ap.parse_args()
@@ -336,6 +346,8 @@ def main() -> None:
         python_cmd=python_cmd,
         gradient_checkpointing=args.gradient_checkpointing,
         use_adafactor=args.adafactor,
+        mlflow_experiment=args.mlflow_experiment,
+        mlflow_tracking_uri=args.mlflow_tracking_uri,
     )
 
     # Save comparison JSON

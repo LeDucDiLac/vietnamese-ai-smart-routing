@@ -28,6 +28,13 @@ from typing import Any
 
 import time
 
+try:
+    import mlflow
+    import mlflow.pytorch
+    _MLFLOW = True
+except ImportError:
+    _MLFLOW = False
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
@@ -267,11 +274,21 @@ def train(
     schema_version: str | None = None,
     gradient_checkpointing: bool = False,
     use_adafactor: bool = False,
+    mlflow_experiment: str = "vi-smart-routing",
+    mlflow_tracking_uri: str | None = None,
 ) -> dict[str, Any]:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     data_dir = Path(data_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if _MLFLOW:
+        if mlflow_tracking_uri:
+            mlflow.set_tracking_uri(mlflow_tracking_uri)
+        mlflow.set_experiment(mlflow_experiment)
+        _mlflow_run = mlflow.start_run(run_name=model_name)
+    else:
+        _mlflow_run = None
 
     if device == "cuda":
         # Disable cuDNN flash-attention graph executor — it fails under memory pressure.
@@ -310,6 +327,23 @@ def train(
         val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate)
 
     model = CustomModel(spec, schema, complexity, pretrained=pretrained).float().to(device)
+    if _MLFLOW and _mlflow_run:
+        mlflow.log_params({
+            "model_name": model_name,
+            "backbone": spec.backbone,
+            "max_tokens": spec.max_tokens,
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "lr": lr,
+            "reg_weight": reg_weight,
+            "schema_version": schema_version or "default",
+            "optimizer": "adafactor" if use_adafactor else "adamw",
+            "gradient_checkpointing": gradient_checkpointing,
+            "device": device,
+            "train_size": len(train_ds),
+            "val_size": len(val_ds) if val_path.exists() else 0,
+        })
+
     if gradient_checkpointing and hasattr(model.backbone, "gradient_checkpointing_enable"):
         model.backbone.gradient_checkpointing_enable()
         print(f"[{time.strftime('%H:%M:%S')}] Gradient checkpointing enabled for {model_name}", flush=True)
@@ -441,6 +475,11 @@ def train(
         )
         if history:
             history[-1]["val_loss"] = val_loss
+        if _MLFLOW and _mlflow_run:
+            mlflow.log_metrics({
+                "train_loss": last_loss,
+                "val_loss": val_loss,
+            }, step=epoch + 1)
         if max_steps is not None and step >= max_steps:
             break
 
@@ -476,6 +515,27 @@ def train(
     (out_dir / "history.jsonl").write_text(
         "\n".join(json.dumps(h) for h in history), encoding="utf-8"
     )
+
+    if _MLFLOW and _mlflow_run:
+        final_metrics = {
+            "val_f1": val_metrics.get("task_macro_f1", math.nan),
+            "val_acc": val_metrics.get("task_top1_acc", math.nan),
+            "val_top2_acc": val_metrics.get("task_top2_acc", math.nan),
+            "val_complexity_mae": val_metrics.get("complexity_mae", math.nan),
+            "test_f1": test_metrics.get("test_task_macro_f1", math.nan),
+            "test_acc": test_metrics.get("test_task_top1_acc", math.nan),
+            "test_top2_acc": test_metrics.get("test_task_top2_acc", math.nan),
+            "test_complexity_mae": test_metrics.get("test_complexity_mae", math.nan),
+            "final_train_loss": meta["final_loss"],
+        }
+        mlflow.log_metrics({k: v for k, v in final_metrics.items() if not math.isnan(v)})
+        mlflow.log_artifact(str(out_dir / "meta.json"))
+        mlflow.log_artifact(str(out_dir / "history.jsonl"))
+        mlflow.log_artifact(str(out_dir / "model.pt"))
+        mlflow.log_artifacts(str(out_dir / "tokenizer"), artifact_path="tokenizer")
+        mlflow.end_run()
+        _log(f"MLflow run logged → experiment='{mlflow_experiment}'")
+
     return meta
 
 
@@ -504,6 +564,10 @@ def main() -> None:
         action="store_true",
         help="use Adafactor optimizer instead of AdamW (~10x less optimizer memory, useful when GPU is near capacity)",
     )
+    ap.add_argument("--mlflow-experiment", default="vi-smart-routing",
+                    help="MLflow experiment name (default: vi-smart-routing)")
+    ap.add_argument("--mlflow-tracking-uri", default=None,
+                    help="MLflow tracking URI (default: local ./mlruns)")
     ap.add_argument(
         "--schema-version",
         default=None,
@@ -524,6 +588,8 @@ def main() -> None:
         schema_version=args.schema_version,
         gradient_checkpointing=args.gradient_checkpointing,
         use_adafactor=args.adafactor,
+        mlflow_experiment=args.mlflow_experiment,
+        mlflow_tracking_uri=args.mlflow_tracking_uri,
     )
     print(json.dumps(meta, indent=2, ensure_ascii=False))
 
