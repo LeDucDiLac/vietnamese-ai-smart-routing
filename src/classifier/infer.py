@@ -87,6 +87,7 @@ class TorchClassifier:
         checkpoint_dir: str | Path,
         model_size: str = "vi-router-quality",
         schema_version: str | None = None,
+        device: str | None = None,
     ):
         import torch
 
@@ -95,20 +96,25 @@ class TorchClassifier:
         from classifier.tokenization import build_tokenizer
 
         self._torch = torch
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
+
         self.schema, self.complexity = _schema_from_meta(Path(checkpoint_dir), schema_version)
         spec = ModelSpec.from_config(load_model_configs()[model_size])
         self.spec = spec
         self.tokenizer = build_tokenizer(spec.backbone, spec.max_tokens)
 
         self.model = CustomModel(spec, self.schema, self.complexity, pretrained=False)
-        state = torch.load(Path(checkpoint_dir) / "model.pt", map_location="cpu")
+        state = torch.load(Path(checkpoint_dir) / "model.pt", map_location=device)
         self.model.load_state_dict(state)
+        self.model.to(device)
         self.model.eval()
 
     def predict(self, prompts: list[str]) -> list[dict[str, Any]]:
         enc = self.tokenizer(prompts)
-        ids = self._torch.tensor(enc["input_ids"])
-        mask = self._torch.tensor(enc["attention_mask"])
+        ids = self._torch.tensor(enc["input_ids"]).to(self.device)
+        mask = self._torch.tensor(enc["attention_mask"]).to(self.device)
         return self.model.predict(ids, mask)
 
 
