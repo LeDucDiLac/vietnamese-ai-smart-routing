@@ -85,6 +85,8 @@ class LabelSchema(BaseModel):
     task_types_vi: dict[str, str] = Field(default_factory=dict)
     complexity_dimensions: list[str]
     complexity_dimensions_vi: dict[str, str] = Field(default_factory=dict)
+    # Optional: task type → routing tier. Present in v2, absent in v1.
+    tier_map: dict[str, str] = Field(default_factory=dict)
 
     @property
     def task_type_ids(self) -> list[str]:
