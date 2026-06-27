@@ -32,3 +32,7 @@ class PromptTokenizer:
 
     def save(self, path: str) -> None:
         self.tokenizer.save_pretrained(path)
+
+
+def build_tokenizer(backbone: str, max_tokens: int = 512) -> PromptTokenizer:
+    return PromptTokenizer(backbone, max_tokens)
