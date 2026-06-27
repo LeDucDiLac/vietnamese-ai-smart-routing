@@ -21,15 +21,22 @@ from config import ComplexityConfig, LabelSchema, load_complexity, load_label_sc
 _CONFIGS_DIR = Path(__file__).resolve().parents[2] / "configs"
 
 
-def _schema_from_meta(checkpoint_dir: Path) -> tuple[LabelSchema, ComplexityConfig]:
-    """Read schema_version from meta.json and return the matching schema + complexity."""
-    meta_path = checkpoint_dir / "meta.json"
-    version: str | None = None
-    if meta_path.exists():
-        meta = json.loads(meta_path.read_text())
-        v = meta.get("schema_version")
-        if v and v != "default":
-            version = v
+def _schema_from_meta(
+    checkpoint_dir: Path,
+    schema_version: str | None = None,
+) -> tuple[LabelSchema, ComplexityConfig]:
+    """Return (schema, complexity) for a checkpoint dir.
+
+    Priority: explicit schema_version arg > meta.json > default (v1).
+    """
+    version = schema_version
+    if not version:
+        meta_path = checkpoint_dir / "meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text())
+            v = meta.get("schema_version")
+            if v and v != "default":
+                version = v
     schema = load_label_schema(version=version)
     if version:
         complexity_path = str(_CONFIGS_DIR / "schemas" / f"{version}-complexity.yaml")
@@ -79,6 +86,7 @@ class TorchClassifier:
         self,
         checkpoint_dir: str | Path,
         model_size: str = "vi-router-quality",
+        schema_version: str | None = None,
     ):
         import torch
 
@@ -87,7 +95,7 @@ class TorchClassifier:
         from classifier.tokenization import build_tokenizer
 
         self._torch = torch
-        self.schema, self.complexity = _schema_from_meta(Path(checkpoint_dir))
+        self.schema, self.complexity = _schema_from_meta(Path(checkpoint_dir), schema_version)
         spec = ModelSpec.from_config(load_model_configs()[model_size])
         self.spec = spec
         self.tokenizer = build_tokenizer(spec.backbone, spec.max_tokens)

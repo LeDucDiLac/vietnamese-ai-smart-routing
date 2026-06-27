@@ -132,7 +132,8 @@ def _load_meta(ckpt_dir: Path) -> dict[str, Any]:
     return json.loads(meta_path.read_text())
 
 
-def load_classifier(model_path: str, backbone: str | None, max_tokens: int):
+def load_classifier(model_path: str, backbone: str | None, max_tokens: int,
+                    schema_version: str | None = None):
     """Return (classifier, label, meta_dict)."""
     p = Path(model_path)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -148,7 +149,7 @@ def load_classifier(model_path: str, backbone: str | None, max_tokens: int):
     meta = _load_meta(p)
     model_name = meta.get("model_name", "vi-router-quality")
     from classifier.infer import TorchClassifier
-    clf = TorchClassifier(p, model_size=model_name)
+    clf = TorchClassifier(p, model_size=model_name, schema_version=schema_version)
     return clf, p.name, meta
 
 
@@ -522,6 +523,11 @@ def main() -> None:
         "--out", default=None,
         help="Write JSON report to this directory"
     )
+    ap.add_argument(
+        "--schema-version", default=None,
+        help="Label schema version (e.g. 'v2'). Overrides meta.json. Required when "
+             "meta.json does not record the schema version."
+    )
     args = ap.parse_args()
 
     testset_path = Path(args.testset)
@@ -548,7 +554,8 @@ def main() -> None:
     for model_path in args.models:
         print(f"\nLoading {model_path} …")
         try:
-            clf, label, meta = load_classifier(model_path, args.backbone, args.max_tokens)
+            clf, label, meta = load_classifier(model_path, args.backbone, args.max_tokens,
+                                                schema_version=args.schema_version)
         except Exception as e:
             print(f"  [error] Could not load {model_path}: {e}", file=sys.stderr)
             continue

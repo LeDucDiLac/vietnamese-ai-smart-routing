@@ -118,6 +118,7 @@ def run_eval(
     testset_path: str,
     python_cmd: list[str],
     env: dict[str, str],
+    schema_version: str | None = None,
     mlflow_experiment: str = "vi-smart-routing",
     mlflow_tracking_uri: str | None = None,
 ) -> dict:
@@ -159,6 +160,7 @@ def run_eval(
         str(ckpt_dir),
         "--testset", testset_path,
         "--out", str(router_out),
+        *( ["--schema-version", schema_version] if schema_version else []),
     ]
     print(f"  [{model_name}] running eval_router ...", flush=True)
     proc2 = subprocess.run(cmd_router, env=env, cwd=str(REPO),
@@ -243,6 +245,9 @@ def main() -> None:
                     help="Path to routing_testset.jsonl for eval_router.py")
     ap.add_argument("--python", default=None, metavar="CMD",
                     help="Python interpreter (default: uv run --extra ml python)")
+    ap.add_argument("--schema-version", default=None, metavar="VERSION",
+                    help="Label schema version to force (e.g. 'v2'). Use when meta.json "
+                         "does not record the version.")
     ap.add_argument("--mlflow-experiment", default="vi-smart-routing",
                     help="MLflow experiment name (default: vi-smart-routing)")
     ap.add_argument("--mlflow-tracking-uri", default=None,
@@ -267,6 +272,7 @@ def main() -> None:
         out_dir = out_root / model_name
         print(f"=== {model_name} ===", flush=True)
         r = run_eval(model_name, ckpt_dir, out_dir, args.csv, args.testset, python_cmd, env,
+                     schema_version=args.schema_version,
                      mlflow_experiment=args.mlflow_experiment,
                      mlflow_tracking_uri=args.mlflow_tracking_uri)
         results.append(r)
