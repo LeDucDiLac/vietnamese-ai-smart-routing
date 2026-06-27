@@ -113,6 +113,12 @@ class ComplexityConfig(BaseModel):
     weights_map: dict[str, float]
     divisor_map: dict[str, float]
     target_sizes: dict[str, int]
+    # Thresholds for small/mid/large tier assignment from prompt_complexity_score.
+    # score < tier_thresholds[0] → small
+    # tier_thresholds[0] ≤ score < tier_thresholds[1] → mid
+    # score ≥ tier_thresholds[1] → large
+    # Defaults match NVIDIA v1 calibration. Override in per-schema complexity yaml.
+    tier_thresholds: list[float] = [0.35, 0.65]
 
     @model_validator(mode="after")
     def _check_weights(self) -> ComplexityConfig:

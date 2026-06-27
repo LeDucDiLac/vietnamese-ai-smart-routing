@@ -76,10 +76,10 @@ def _estimated_latency(completion_tokens: int, tier: str) -> float:
     return completion_tokens * TIER_LATENCY_MS_PER_1K[tier] / 1000.0
 
 
-def _tier_from_complexity(score: float) -> str:
-    if score < 0.35:
+def _tier_from_complexity(score: float, thresholds: tuple[float, float] = (0.35, 0.65)) -> str:
+    if score < thresholds[0]:
         return "small"
-    if score < 0.65:
+    if score < thresholds[1]:
         return "mid"
     return "large"
 
@@ -161,6 +161,7 @@ def run_inference(
     clf,
     rows: list[TestRow],
     batch_size: int = 32,
+    tier_thresholds: tuple[float, float] = (0.35, 0.65),
 ) -> tuple[list[str], float]:
     """
     Return (predicted_tiers, mean_ms_per_query).
@@ -178,7 +179,7 @@ def run_inference(
         elapsed = (time.perf_counter() - t0) * 1000.0
         total_ms += elapsed
         for p in preds:
-            predictions.append(_tier_from_complexity(p["prompt_complexity_score"]))
+            predictions.append(_tier_from_complexity(p["prompt_complexity_score"], tier_thresholds))
 
     mean_ms = total_ms / len(rows) if rows else 0.0
     return predictions, mean_ms
@@ -560,8 +561,11 @@ def main() -> None:
             print(f"  [error] Could not load {model_path}: {e}", file=sys.stderr)
             continue
 
+        thresholds = tuple(clf.complexity.tier_thresholds) if hasattr(clf, "complexity") else (0.35, 0.65)
+        print(f"  Tier thresholds: small<{thresholds[0]}, mid<{thresholds[1]}, large≥{thresholds[1]}")
         print(f"  Running inference on {len(rows):,} prompts (batch={args.batch_size}) …")
-        predicted, lat_ms = run_inference(clf, rows, batch_size=args.batch_size)
+        predicted, lat_ms = run_inference(clf, rows, batch_size=args.batch_size,
+                                          tier_thresholds=thresholds)
         print(f"  Done — {lat_ms:.1f} ms / query")
 
         res = compute_eval(rows, predicted, label, meta.get("model_name", label), lat_ms)
