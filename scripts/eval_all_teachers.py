@@ -35,6 +35,12 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    import mlflow
+    _MLFLOW = True
+except ImportError:
+    _MLFLOW = False
+
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
 
@@ -62,6 +68,48 @@ def _fmt(v: object, decimals: int = 4) -> str:
         return str(v)
 
 
+def _log_to_mlflow(
+    model_name: str,
+    result: dict,
+    out_dir: Path,
+    mlflow_experiment: str,
+    mlflow_tracking_uri: str | None,
+) -> None:
+    if not _MLFLOW:
+        return
+    if mlflow_tracking_uri:
+        mlflow.set_tracking_uri(mlflow_tracking_uri)
+    mlflow.set_experiment(mlflow_experiment)
+
+    with mlflow.start_run(run_name=f"{model_name}-eval"):
+        mlflow.log_param("model_name", model_name)
+        mlflow.log_param("eval_type", "routing_simulation")
+
+        kpis = result.get("eval_logs", {}).get("kpis", result.get("eval_logs", {}))
+        logs_metrics = {
+            "cost_saving_pct": kpis.get("cost_saving_pct"),
+            "quality_loss_pct": kpis.get("quality_loss_pct"),
+            "latency_reduction_pct": kpis.get("latency_reduction_pct"),
+            "router_latency_ms": kpis.get("router_latency_ms"),
+        }
+        router = result.get("eval_router", {})
+        router_metrics = {
+            "avg_acc": router.get("avg_acc"),
+            "gap_to_oracle": router.get("gap_to_oracle"),
+            "cost_save": router.get("cost_save"),
+            "pgr": router.get("pgr"),
+            "aiq": router.get("aiq"),
+        }
+        all_metrics = {k: float(v) for k, v in {**logs_metrics, **router_metrics}.items() if v is not None}
+        if all_metrics:
+            mlflow.log_metrics(all_metrics)
+
+        for artifact_name in ("eval_logs/report.json", "eval_router/report.json"):
+            p = out_dir / artifact_name
+            if p.exists():
+                mlflow.log_artifact(str(p), artifact_path=artifact_name.split("/")[0])
+
+
 def run_eval(
     model_name: str,
     ckpt_dir: Path,
@@ -70,6 +118,8 @@ def run_eval(
     testset_path: str,
     python_cmd: list[str],
     env: dict[str, str],
+    mlflow_experiment: str = "vi-smart-routing",
+    mlflow_tracking_uri: str | None = None,
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     result: dict = {"model_name": model_name}
@@ -123,6 +173,7 @@ def run_eval(
             result["eval_router"] = json.loads(router_report.read_text())
 
     result["elapsed_s"] = time.time() - t0
+    _log_to_mlflow(model_name, result, out_dir, mlflow_experiment, mlflow_tracking_uri)
     return result
 
 
@@ -192,6 +243,10 @@ def main() -> None:
                     help="Path to routing_testset.jsonl for eval_router.py")
     ap.add_argument("--python", default=None, metavar="CMD",
                     help="Python interpreter (default: uv run --extra ml python)")
+    ap.add_argument("--mlflow-experiment", default="vi-smart-routing",
+                    help="MLflow experiment name (default: vi-smart-routing)")
+    ap.add_argument("--mlflow-tracking-uri", default=None,
+                    help="MLflow tracking URI (default: local ./mlruns)")
     args = ap.parse_args()
 
     ckpts_root = Path(args.checkpoints_root)
@@ -211,7 +266,9 @@ def main() -> None:
         ckpt_dir = ckpts_root / model_name
         out_dir = out_root / model_name
         print(f"=== {model_name} ===", flush=True)
-        r = run_eval(model_name, ckpt_dir, out_dir, args.csv, args.testset, python_cmd, env)
+        r = run_eval(model_name, ckpt_dir, out_dir, args.csv, args.testset, python_cmd, env,
+                     mlflow_experiment=args.mlflow_experiment,
+                     mlflow_tracking_uri=args.mlflow_tracking_uri)
         results.append(r)
         print()
 
