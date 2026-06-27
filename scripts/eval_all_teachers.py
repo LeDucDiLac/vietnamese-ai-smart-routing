@@ -266,12 +266,12 @@ def main() -> None:
     args = ap.parse_args()
 
     ckpts_root = Path(args.checkpoints_root)
-    out_root = Path(args.out_root) if args.out_root else ckpts_root / f"eval-{args.run_name}"
     python_cmd = args.python.split() if args.python else ["uv", "run", "--extra", "ml", "python"]
     env = _build_env()
+    run_tag = args.run_name
 
     print(f"Checkpoints : {ckpts_root}")
-    print(f"Output      : {out_root}")
+    print(f"Run name    : {run_tag}  (artifacts → <ckpt_dir>/eval-{run_tag}/)")
     print(f"Models      : {args.models}")
     print(f"CSV         : {args.csv}")
     print(f"Testset     : {args.testset}")
@@ -280,7 +280,8 @@ def main() -> None:
     results = []
     for model_name in args.models:
         ckpt_dir = ckpts_root / model_name
-        out_dir = out_root / model_name
+        # Eval artifacts live inside each model's own checkpoint directory.
+        out_dir = (Path(args.out_root) / model_name) if args.out_root else (ckpt_dir / f"eval-{run_tag}")
         print(f"=== {model_name} ===", flush=True)
         r = run_eval(model_name, ckpt_dir, out_dir, args.csv, args.testset, python_cmd, env,
                      schema_version=args.schema_version,
@@ -289,8 +290,9 @@ def main() -> None:
         results.append(r)
         print()
 
-    report_path = out_root / "teacher_eval_comparison.json"
-    out_root.mkdir(parents=True, exist_ok=True)
+    comparison_dir = Path(args.out_root) if args.out_root else ckpts_root
+    comparison_dir.mkdir(parents=True, exist_ok=True)
+    report_path = comparison_dir / f"eval-comparison-{run_tag}.json"
     report_path.write_text(json.dumps(results, indent=2, ensure_ascii=False))
 
     print("\n=== Teacher Eval Comparison ===\n")

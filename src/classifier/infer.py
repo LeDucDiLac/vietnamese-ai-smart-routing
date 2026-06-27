@@ -103,12 +103,16 @@ class TorchClassifier:
         self.schema, self.complexity = _schema_from_meta(Path(checkpoint_dir), schema_version)
         spec = ModelSpec.from_config(load_model_configs()[model_size])
         self.spec = spec
-        self.tokenizer = build_tokenizer(spec.backbone, spec.max_tokens)
+        # Prefer the saved tokenizer in the checkpoint dir to avoid HF network calls.
+        local_tok = Path(checkpoint_dir) / "tokenizer"
+        tok_source = str(local_tok) if local_tok.exists() else spec.backbone
+        self.tokenizer = build_tokenizer(tok_source, spec.max_tokens)
 
         self.model = CustomModel(spec, self.schema, self.complexity, pretrained=False)
         state = torch.load(Path(checkpoint_dir) / "model.pt", map_location=device)
         self.model.load_state_dict(state)
         self.model.to(device)
+        self.model.float()  # backbone (e.g. Granite) may emit BF16; keep everything in fp32
         self.model.eval()
 
     def predict(self, prompts: list[str]) -> list[dict[str, Any]]:
