@@ -244,7 +244,10 @@ def main() -> None:
     ap.add_argument("--checkpoints-root", required=True,
                     help="Directory containing per-model checkpoint subdirs (e.g. runs/teachers/)")
     ap.add_argument("--out-root", default=None,
-                    help="Output root for eval reports (default: <checkpoints-root>/eval/)")
+                    help="Output root for eval reports (default: <checkpoints-root>/eval-<run-name>/)")
+    ap.add_argument("--run-name", default="baseline",
+                    help="Tag for this eval run — appended to output dir so runs don't overwrite "
+                         "each other (default: 'baseline'). E.g. 'calibrated', 'v2-thresh'.")
     ap.add_argument("--models", nargs="+", default=TEACHER_MODELS, metavar="MODEL",
                     help="Which models to evaluate (default: all 4)")
     ap.add_argument("--csv", default="data/eval/intern_data.csv",
@@ -263,7 +266,7 @@ def main() -> None:
     args = ap.parse_args()
 
     ckpts_root = Path(args.checkpoints_root)
-    out_root = Path(args.out_root) if args.out_root else ckpts_root / "eval"
+    out_root = Path(args.out_root) if args.out_root else ckpts_root / f"eval-{args.run_name}"
     python_cmd = args.python.split() if args.python else ["uv", "run", "--extra", "ml", "python"]
     env = _build_env()
 
