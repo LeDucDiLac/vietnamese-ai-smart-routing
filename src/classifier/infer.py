@@ -12,10 +12,31 @@ Both return the same NVIDIA-style dict so the router doesn't care which ran.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Protocol
 
 from config import ComplexityConfig, LabelSchema, load_complexity, load_label_schema
+
+_CONFIGS_DIR = Path(__file__).resolve().parents[2] / "configs"
+
+
+def _schema_from_meta(checkpoint_dir: Path) -> tuple[LabelSchema, ComplexityConfig]:
+    """Read schema_version from meta.json and return the matching schema + complexity."""
+    meta_path = checkpoint_dir / "meta.json"
+    version: str | None = None
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text())
+        v = meta.get("schema_version")
+        if v and v != "default":
+            version = v
+    schema = load_label_schema(version=version)
+    if version:
+        complexity_path = str(_CONFIGS_DIR / "schemas" / f"{version}-complexity.yaml")
+        complexity = load_complexity(path=complexity_path)
+    else:
+        complexity = load_complexity()
+    return schema, complexity
 
 
 class Classifier(Protocol):
@@ -66,8 +87,7 @@ class TorchClassifier:
         from classifier.tokenization import build_tokenizer
 
         self._torch = torch
-        self.schema = load_label_schema()
-        self.complexity = load_complexity()
+        self.schema, self.complexity = _schema_from_meta(Path(checkpoint_dir))
         spec = ModelSpec.from_config(load_model_configs()[model_size])
         self.spec = spec
         self.tokenizer = build_tokenizer(spec.backbone, spec.max_tokens)
