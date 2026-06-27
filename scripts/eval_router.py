@@ -76,41 +76,12 @@ def _estimated_latency(completion_tokens: int, tier: str) -> float:
     return completion_tokens * TIER_LATENCY_MS_PER_1K[tier] / 1000.0
 
 
-_TIER_ORDER = {"small": 0, "mid": 1, "large": 2}
-_TIERS_BY_ORDER = ["small", "mid", "large"]
-
-
 def _tier_from_complexity(score: float, thresholds: tuple[float, float] = (0.35, 0.65)) -> str:
     if score < thresholds[0]:
         return "small"
     if score < thresholds[1]:
         return "mid"
     return "large"
-
-
-def _tier_from_pred(
-    pred: dict,
-    schema_tier_map: dict[str, str],
-    complexity_thresholds: tuple[float, float],
-) -> str:
-    """Route using task type as primary signal, complexity score as upgrade modifier.
-
-    If the schema has no tier_map (v1), fall back to complexity-score threshold.
-    If it does (v2), use task_type → base_tier, then upgrade if complexity is high.
-    """
-    if not schema_tier_map:
-        return _tier_from_complexity(pred["prompt_complexity_score"], complexity_thresholds)
-
-    task_type = pred.get("task_type_1", "")
-    base_tier = schema_tier_map.get(task_type, "large")
-
-    # Upgrade by one tier if complexity score exceeds the upper threshold.
-    score = pred["prompt_complexity_score"]
-    if score >= complexity_thresholds[1]:
-        base_idx = _TIER_ORDER[base_tier]
-        base_tier = _TIERS_BY_ORDER[min(base_idx + 1, 2)]
-
-    return base_tier
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,10 +162,8 @@ def run_inference(
     rows: list[TestRow],
     batch_size: int = 32,
     tier_thresholds: tuple[float, float] = (0.35, 0.65),
-    schema_tier_map: dict[str, str] | None = None,
 ) -> tuple[list[str], float]:
     """Return (predicted_tiers, mean_ms_per_query)."""
-    tier_map = schema_tier_map or {}
     prompts = [r.prompt_text or "" for r in rows]
     predictions: list[str] = []
     total_ms = 0.0
@@ -206,7 +175,7 @@ def run_inference(
         elapsed = (time.perf_counter() - t0) * 1000.0
         total_ms += elapsed
         for p in preds:
-            predictions.append(_tier_from_pred(p, tier_map, tier_thresholds))
+            predictions.append(_tier_from_complexity(p["prompt_complexity_score"], tier_thresholds))
 
     mean_ms = total_ms / len(rows) if rows else 0.0
     return predictions, mean_ms
@@ -589,16 +558,10 @@ def main() -> None:
             continue
 
         thresholds = tuple(clf.complexity.tier_thresholds) if hasattr(clf, "complexity") else (0.35, 0.65)
-        tier_map = clf.schema.tier_map if hasattr(clf, "schema") else {}
-        if tier_map:
-            print(f"  Routing mode: task-type map  ({', '.join(f'{k}→{v}' for k,v in tier_map.items())})")
-            print(f"  Complexity upgrade threshold: {thresholds[1]}")
-        else:
-            print(f"  Routing mode: complexity threshold  small<{thresholds[0]}, mid<{thresholds[1]}")
+        print(f"  Tier thresholds: small<{thresholds[0]}, mid<{thresholds[1]}, large≥{thresholds[1]}")
         print(f"  Running inference on {len(rows):,} prompts (batch={args.batch_size}) …")
         predicted, lat_ms = run_inference(clf, rows, batch_size=args.batch_size,
-                                          tier_thresholds=thresholds,
-                                          schema_tier_map=tier_map)
+                                          tier_thresholds=thresholds)
         print(f"  Done — {lat_ms:.1f} ms / query")
 
         res = compute_eval(rows, predicted, label, meta.get("model_name", label), lat_ms)

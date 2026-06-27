@@ -18,3 +18,8 @@ target_sizes:
   reasoning_depth: 1
   domain_knowledge: 1
   instruction_precision: 1
+
+# Calibrated on routing_testset.jsonl (2,877 rows, granite checkpoint).
+# v2 complexity scores are compressed to [0.007, 0.68] — much lower range than v1's [0,1].
+# These thresholds give 75.6% routing accuracy vs 0.5% with the v1 defaults (0.35/0.65).
+tier_thresholds: [0.0069, 0.0439]

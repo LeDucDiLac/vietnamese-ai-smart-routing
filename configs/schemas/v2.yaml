@@ -35,15 +35,3 @@ complexity_dimensions_vi:
   domain_knowledge: "Kiến thức chuyên sâu (mức độ cần chuyên môn vượt ngoài kiến thức phổ thông)"
   instruction_precision: "Độ chính xác hướng dẫn (mức độ tuân thủ chặt chẽ các ràng buộc về định dạng, cấu trúc, độ dài, phong cách)"
 
-# Primary routing signal for v2: map task type → base tier.
-# Complexity score acts as an upgrade modifier (see eval_router.py).
-# Conversation: simple exchanges that cheap models handle well.
-# Summarization / KR+QA / Content Creation: mid-tier by default.
-# Reasoning / Code: reliably need large models.
-tier_map:
-  "Knowledge Retrieval / QA": mid
-  "Reasoning / Problem Solving": large
-  "Summarization": mid
-  "Content Creation": mid
-  "Code": large
-  "Conversation": small
