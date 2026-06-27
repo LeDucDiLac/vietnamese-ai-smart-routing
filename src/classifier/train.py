@@ -191,13 +191,42 @@ def compute_class_weights(ds: PromptDataset, schema: LabelSchema) -> torch.Tenso
 
 
 @torch.no_grad()
+def _r2(preds: list[float], targets: list[float]) -> float:
+    n = len(targets)
+    if n == 0:
+        return 0.0
+    mean_t = sum(targets) / n
+    ss_res = sum((p - t) ** 2 for p, t in zip(preds, targets))
+    ss_tot = sum((t - mean_t) ** 2 for t in targets)
+    return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+
+def _spearman(preds: list[float], targets: list[float]) -> float:
+    n = len(preds)
+    if n < 2:
+        return 0.0
+    def _ranks(vals: list[float]) -> list[float]:
+        order = sorted(range(n), key=lambda i: vals[i])
+        ranks = [0.0] * n
+        for rank, idx in enumerate(order):
+            ranks[idx] = float(rank)
+        return ranks
+    rp, rt = _ranks(preds), _ranks(targets)
+    mean_rp = sum(rp) / n
+    mean_rt = sum(rt) / n
+    cov = sum((rp[i] - mean_rp) * (rt[i] - mean_rt) for i in range(n))
+    std_p = (sum((r - mean_rp) ** 2 for r in rp) ** 0.5)
+    std_t = (sum((r - mean_rt) ** 2 for r in rt) ** 0.5)
+    return cov / (std_p * std_t) if std_p > 0 and std_t > 0 else 0.0
+
+
 def evaluate(
     model: CustomModel,
     dl: DataLoader,
     schema: LabelSchema,
     device: str,
 ) -> dict[str, float]:
-    """task_type macro-F1 + top-2 accuracy, and mean MAE over complexity dims."""
+    """task_type macro-F1 + top-2 accuracy, MAE, R², and Spearman ρ over complexity dims."""
     model.eval()
     n_classes = len(schema.task_types)
     tp = [0] * n_classes
@@ -208,6 +237,9 @@ def evaluate(
     total = 0
     mae_sum = 0.0
     mae_count = 0
+    # Buffer per-dim predictions and targets for R² and Spearman ρ.
+    dim_preds: dict[str, list[float]] = {d: [] for d in schema.complexity_dimensions}
+    dim_targets: dict[str, list[float]] = {d: [] for d in schema.complexity_dimensions}
 
     for batch in dl:
         input_ids = batch["input_ids"].to(device)
@@ -232,6 +264,12 @@ def evaluate(
                 top2_correct += 1
         for dim in schema.complexity_dimensions:
             tgt = batch["dim_targets"][dim].to(device)
+            p_vals = out[dim].detach().cpu().squeeze(-1).tolist()
+            t_vals = tgt.detach().cpu().squeeze(-1).tolist()
+            if isinstance(p_vals, float):
+                p_vals, t_vals = [p_vals], [t_vals]
+            dim_preds[dim].extend(p_vals)
+            dim_targets[dim].extend(t_vals)
             mae_sum += float((out[dim] - tgt).abs().sum().item())
             mae_count += tgt.numel()
 
@@ -240,17 +278,25 @@ def evaluate(
         denom_p = tp[c] + fp[c]
         denom_r = tp[c] + fn[c]
         if denom_p == 0 and denom_r == 0:
-            continue  # class absent from this split — skip, don't penalize
+            continue
         prec = tp[c] / denom_p if denom_p else 0.0
         rec = tp[c] / denom_r if denom_r else 0.0
         f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
         f1s.append(f1)
+
+    r2_vals, spearman_vals = [], []
+    for dim in schema.complexity_dimensions:
+        ps, ts = dim_preds[dim], dim_targets[dim]
+        r2_vals.append(_r2(ps, ts))
+        spearman_vals.append(_spearman(ps, ts))
 
     return {
         "task_macro_f1": sum(f1s) / len(f1s) if f1s else 0.0,
         "task_top1_acc": top1_correct / total if total else 0.0,
         "task_top2_acc": top2_correct / total if total else 0.0,
         "complexity_mae": mae_sum / mae_count if mae_count else 0.0,
+        "complexity_r2": sum(r2_vals) / len(r2_vals) if r2_vals else 0.0,
+        "complexity_spearman": sum(spearman_vals) / len(spearman_vals) if spearman_vals else 0.0,
     }
 
 
@@ -522,10 +568,14 @@ def train(
             "val_acc": val_metrics.get("task_top1_acc", math.nan),
             "val_top2_acc": val_metrics.get("task_top2_acc", math.nan),
             "val_complexity_mae": val_metrics.get("complexity_mae", math.nan),
+            "val_complexity_r2": val_metrics.get("complexity_r2", math.nan),
+            "val_complexity_spearman": val_metrics.get("complexity_spearman", math.nan),
             "test_f1": test_metrics.get("test_task_macro_f1", math.nan),
             "test_acc": test_metrics.get("test_task_top1_acc", math.nan),
             "test_top2_acc": test_metrics.get("test_task_top2_acc", math.nan),
             "test_complexity_mae": test_metrics.get("test_complexity_mae", math.nan),
+            "test_complexity_r2": test_metrics.get("test_complexity_r2", math.nan),
+            "test_complexity_spearman": test_metrics.get("test_complexity_spearman", math.nan),
             "final_train_loss": meta["final_loss"],
         }
         mlflow.log_metrics({k: v for k, v in final_metrics.items() if not math.isnan(v)})
