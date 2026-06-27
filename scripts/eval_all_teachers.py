@@ -85,14 +85,15 @@ def _log_to_mlflow(
         mlflow.log_param("model_name", model_name)
         mlflow.log_param("eval_type", "routing_simulation")
 
-        kpis = result.get("eval_logs", {}).get("kpis", result.get("eval_logs", {}))
+        kpis = _kpis_from_logs(result.get("eval_logs", {}))
         logs_metrics = {
             "cost_saving_pct": kpis.get("cost_saving_pct"),
             "quality_loss_pct": kpis.get("quality_loss_pct"),
             "latency_reduction_pct": kpis.get("latency_reduction_pct"),
             "router_latency_ms": kpis.get("router_latency_ms"),
         }
-        router = result.get("eval_router", {})
+        router_results = result.get("eval_router", {}).get("results", [{}])
+        router = router_results[0] if router_results else {}
         router_metrics = {
             "avg_acc": router.get("avg_acc"),
             "gap_to_oracle": router.get("gap_to_oracle"),
@@ -104,7 +105,7 @@ def _log_to_mlflow(
         if all_metrics:
             mlflow.log_metrics(all_metrics)
 
-        for artifact_name in ("eval_logs/report.json", "eval_router/report.json"):
+        for artifact_name in ("eval_logs/eval_logs.json", "eval_router/eval_router.json"):
             p = out_dir / artifact_name
             if p.exists():
                 mlflow.log_artifact(str(p), artifact_path=artifact_name.split("/")[0])
@@ -147,7 +148,7 @@ def run_eval(
         print(proc.stderr[-1000:] if proc.stderr else "", flush=True)
         result["eval_logs_error"] = f"exit {proc.returncode}"
     else:
-        report_path = logs_out / "report.json"
+        report_path = logs_out / "eval_logs.json"
         if report_path.exists():
             report = json.loads(report_path.read_text())
             result["eval_logs"] = report
@@ -170,7 +171,7 @@ def run_eval(
         print(proc2.stderr[-1000:] if proc2.stderr else "", flush=True)
         result["eval_router_error"] = f"exit {proc2.returncode}"
     else:
-        router_report = router_out / "report.json"
+        router_report = router_out / "eval_router.json"
         if router_report.exists():
             result["eval_router"] = json.loads(router_report.read_text())
 
@@ -179,8 +180,14 @@ def run_eval(
     return result
 
 
+def _kpis_from_logs(report: dict) -> dict:
+    """Extract KPI dict from eval_logs.json — router scenario is scenarios[0]."""
+    scenarios = report.get("scenarios", [])
+    return scenarios[0] if scenarios else {}
+
+
 def _print_logs_summary(model_name: str, report: dict) -> None:
-    kpis = report.get("kpis", report)
+    kpis = _kpis_from_logs(report)
     print(
         f"    cost_saving={_fmt(kpis.get('cost_saving_pct'), 1)}% "
         f"quality_loss={_fmt(kpis.get('quality_loss_pct'), 1)}% "
@@ -202,8 +209,9 @@ def print_table(results: list[dict]) -> None:
         if "error" in r:
             rows.append([name, r["error"], "—", "—", "—", "—", "—", "—"])
             continue
-        kpis = r.get("eval_logs", {}).get("kpis", r.get("eval_logs", {}))
-        router = r.get("eval_router", {})
+        kpis = _kpis_from_logs(r.get("eval_logs", {}))
+        router_results = r.get("eval_router", {}).get("results", [{}])
+        router = router_results[0] if router_results else {}
         rows.append([
             name,
             _fmt(kpis.get("cost_saving_pct"), 1),
