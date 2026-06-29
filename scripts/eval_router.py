@@ -142,7 +142,8 @@ def load_classifier(model_path: str, backbone: str | None, max_tokens: int,
         from classifier.infer import OnnxClassifier
         if not backbone:
             sys.exit("--backbone is required for ONNX models")
-        clf = OnnxClassifier(p, backbone=backbone, max_tokens=max_tokens)
+        clf = OnnxClassifier(p, backbone=backbone, max_tokens=max_tokens,
+                             schema_version=schema_version)
         return clf, p.name, {"model_name": p.stem, "backbone": backbone}
 
     # PyTorch checkpoint directory

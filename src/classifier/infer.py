@@ -130,13 +130,14 @@ class OnnxClassifier:
         onnx_path: str | Path,
         backbone: str,
         max_tokens: int = 256,
+        schema_version: str | None = None,
     ):
         import onnxruntime as ort
 
         from classifier.tokenization import build_tokenizer
 
-        self.schema = load_label_schema()
-        self.complexity = load_complexity()
+        # Priority: explicit schema_version > meta.json beside the .onnx > v1 default.
+        self.schema, self.complexity = _schema_from_meta(Path(onnx_path).parent, schema_version)
         self.tokenizer = build_tokenizer(backbone, max_tokens)
         self.session = ort.InferenceSession(
             str(onnx_path), providers=["CPUExecutionProvider"]

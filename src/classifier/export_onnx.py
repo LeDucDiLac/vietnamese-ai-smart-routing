@@ -32,13 +32,24 @@ def export(
     *,
     quantize: bool = True,
     opset: int = 17,
+    schema_version: str | None = None,
 ) -> dict[str, str]:
     """Export ``checkpoint`` (a CustomModel state_dict) to ONNX (+INT8).
 
+    ``schema_version`` must match how the checkpoint was trained — a v2 student
+    has a 6-class task head + 3 complexity dims, so the model and ONNX output
+    names differ from the v1 default.
+
     Returns a dict of produced artifact paths.
     """
-    schema = load_label_schema()
-    complexity = load_complexity()
+    schema = load_label_schema(version=schema_version)
+    if schema_version:
+        from config import CONFIGS_DIR
+        complexity = load_complexity(
+            path=str(CONFIGS_DIR / "schemas" / f"{schema_version}-complexity.yaml")
+        )
+    else:
+        complexity = load_complexity()
     model_cfg = load_model_configs()[model_name]
     spec = ModelSpec.from_config(model_cfg)
 
@@ -129,6 +140,8 @@ def main() -> None:
     ap.add_argument("--model-name", default="vi-router-fast", help="key in configs/model.yaml")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--no-quantize", action="store_true")
+    ap.add_argument("--schema-version", default=None,
+                    help="label schema version, e.g. 'v2'. Must match the checkpoint.")
     args = ap.parse_args()
 
     artifacts = export(
@@ -136,6 +149,7 @@ def main() -> None:
         args.model_name,
         args.out_dir,
         quantize=not args.no_quantize,
+        schema_version=args.schema_version,
     )
     print("Exported artifacts:")
     for k, v in artifacts.items():
