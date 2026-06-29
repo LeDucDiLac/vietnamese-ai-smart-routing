@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full student distillation + evaluation pipeline — sequential, MLflow-tracked.
+# Full student distillation + evaluation pipeline — sequential, versioned, MLflow-tracked.
 #
 # For each student, in sequence (one at a time → fits the 12GB H200 partition):
 #   1. distill from its v2 teacher          (AMP, logged to MLflow)
@@ -9,13 +9,18 @@
 #        - the eval set          (eval_router.py → routing_testset.jsonl, torch + INT8 ONNX)
 #      also logged to MLflow.
 #
-# Launch detached (survives logout):
-#   nohup bash scripts/run_full_distillation.sh > runs/students/pipeline.log 2>&1 &
-#   tail -f runs/students/pipeline.log
-#   mlflow ui --backend-store-uri ./mlruns      # to watch metrics live
+# VERSIONING: every invocation gets a RUN id (timestamp by default, or set a
+# semantic one). All artifacts go under runs/students/<RUN>/ and MLflow runs are
+# named "<RUN>/<student>-{distill,eval}" + tagged pipeline_run=<RUN>, so iterations
+# never clobber each other on disk or blur together in MLflow.
 #
-# Override any setting via env, e.g.:
-#   BATCH=24 EPOCHS=4 PYTHON=".venv/bin/python" nohup bash scripts/run_full_distillation.sh ...
+# Launch detached (survives logout):
+#   RUN=v1-t2-a0.5 nohup bash scripts/run_full_distillation.sh &   # named iteration
+#   nohup bash scripts/run_full_distillation.sh &                  # timestamp id
+#   tail -f runs/students/<RUN>/pipeline.log
+#   mlflow ui --backend-store-uri ./mlruns        # filter by tag pipeline_run=<RUN>
+#
+# Override any setting via env, e.g. BATCH=24 EPOCHS=4 PYTHON=".venv/bin/python" RUN=...
 
 set -euo pipefail
 
@@ -29,15 +34,24 @@ PYTHON="${PYTHON:-uv run --extra ml python}"
 DATA_ROOT="${DATA_ROOT:-data/processed/v2}"      # v2 teachers ⇒ v2 data
 TEACHERS_ROOT="${TEACHERS_ROOT:-runs/teachers}"
 OUT_ROOT="${OUT_ROOT:-runs/students}"
+RUN="${RUN:-$(date +%Y%m%d-%H%M%S)}"             # version id for this iteration
 SCHEMA="${SCHEMA:-v2}"
 EPOCHS="${EPOCHS:-3}"
-BATCH="${BATCH:-32}"                              # 32 ⇒ ~9GB peak (granite), fits 12GB
+BATCH="${BATCH:-32}"                             # 32 ⇒ ~9GB peak (granite), fits 12GB
 TEMP="${TEMP:-2.0}"
 ALPHA="${ALPHA:-0.5}"
+MAX_STEPS="${MAX_STEPS:-}"                        # cap steps/student (smoke-test the wiring)
+STUDENTS="${STUDENTS:-}"                          # space-separated subset, e.g. "vi-router-fast-granite"
 CSV="${CSV:-data/eval/intern_data.csv}"          # production logs
 TESTSET="${TESTSET:-data/eval/routing_testset.jsonl}"
 MLFLOW_EXP="${MLFLOW_EXP:-vi-smart-routing}"
 MLFLOW_URI="${MLFLOW_URI:-$REPO/mlruns}"
+
+RUN_DIR="$OUT_ROOT/$RUN"                          # all artifacts for this run live here
+mkdir -p "$RUN_DIR"
+export MLFLOW_TRACKING_URI="$MLFLOW_URI"
+# Tee everything into a versioned log (works under nohup too).
+exec > >(tee -a "$RUN_DIR/pipeline.log") 2>&1
 
 # teacher_dir : student_name  (run in this order)
 PAIRS=(
@@ -46,21 +60,22 @@ PAIRS=(
   "vi-router-quality:vi-router-fast"                   # mDeBERTa → MiniLM baseline
 )
 
-mkdir -p "$OUT_ROOT"
-export MLFLOW_TRACKING_URI="$MLFLOW_URI"
-
 echo "=================================================================="
-echo " STUDENT DISTILLATION PIPELINE  |  start $(date)"
+echo " STUDENT DISTILLATION PIPELINE  |  RUN=$RUN  |  start $(date)"
+echo " artifacts : $RUN_DIR"
 echo " data=$DATA_ROOT  schema=$SCHEMA  epochs=$EPOCHS  batch=$BATCH"
-echo " MLflow: experiment=$MLFLOW_EXP  uri=$MLFLOW_URI"
-echo " python: $PYTHON"
+echo " MLflow    : experiment=$MLFLOW_EXP  uri=$MLFLOW_URI  (tag pipeline_run=$RUN)"
+echo " python    : $PYTHON"
 echo "=================================================================="
 
 for pair in "${PAIRS[@]}"; do
   teacher="${pair%%:*}"
   student="${pair##*:}"
   tdir="$TEACHERS_ROOT/$teacher"
-  sdir="$OUT_ROOT/$student"
+  sdir="$RUN_DIR/$student"
+
+  # Optional subset filter (STUDENTS="a b") — skip students not in the list.
+  if [[ -n "$STUDENTS" && " $STUDENTS " != *" $student "* ]]; then continue; fi
 
   if [[ ! -f "$tdir/model.pt" ]]; then
     echo; echo "### SKIP $student — teacher checkpoint missing at $tdir"; continue
@@ -74,6 +89,7 @@ for pair in "${PAIRS[@]}"; do
     --data "$DATA_ROOT" --schema-version "$SCHEMA" \
     --epochs "$EPOCHS" --batch-size "$BATCH" \
     --temperature "$TEMP" --alpha "$ALPHA" \
+    --run-name "$RUN" ${MAX_STEPS:+--max-steps "$MAX_STEPS"} \
     --mlflow-experiment "$MLFLOW_EXP" --mlflow-tracking-uri "$MLFLOW_URI"
 
   echo; echo "### [$(date)] EXPORT  $student  ->  INT8 ONNX"
@@ -85,19 +101,21 @@ for pair in "${PAIRS[@]}"; do
 
   echo; echo "### [$(date)] EVALUATE  $student  (production logs + routing eval set)"
   $PYTHON scripts/eval_all_students.py \
-    --students-root "$OUT_ROOT" --teachers-root "$TEACHERS_ROOT" \
+    --students-root "$RUN_DIR" --teachers-root "$TEACHERS_ROOT" \
     --students "$student" --csv "$CSV" --testset "$TESTSET" \
-    --schema-version "$SCHEMA" --python "$PYTHON" \
+    --schema-version "$SCHEMA" --run-name "$RUN" --python "$PYTHON" \
     --mlflow-experiment "$MLFLOW_EXP" --mlflow-tracking-uri "$MLFLOW_URI"
 done
 
 echo; echo "##################################################################"
-echo "### [$(date)] FINAL comparison across all students"
+echo "### [$(date)] FINAL comparison across all students  (RUN=$RUN)"
 echo "##################################################################"
+# Aggregation pass: combined table over all students. --no-mlflow so it doesn't
+# duplicate the per-student eval runs already logged in the loop above.
 $PYTHON scripts/eval_all_students.py \
-  --students-root "$OUT_ROOT" --teachers-root "$TEACHERS_ROOT" \
+  --students-root "$RUN_DIR" --teachers-root "$TEACHERS_ROOT" \
   --csv "$CSV" --testset "$TESTSET" --schema-version "$SCHEMA" \
-  --python "$PYTHON" --run-name final \
-  --mlflow-experiment "$MLFLOW_EXP" --mlflow-tracking-uri "$MLFLOW_URI" || true
+  --run-name "$RUN" --python "$PYTHON" --no-mlflow \
+  ${STUDENTS:+--students $STUDENTS} || true
 
-echo; echo "=== PIPELINE DONE $(date) — checkpoints in $OUT_ROOT, metrics in MLflow ($MLFLOW_EXP) ==="
+echo; echo "=== PIPELINE DONE $(date) — RUN=$RUN — artifacts in $RUN_DIR, metrics in MLflow ($MLFLOW_EXP) ==="

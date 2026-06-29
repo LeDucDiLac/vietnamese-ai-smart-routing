@@ -77,6 +77,7 @@ def _make_cmd(
     max_steps: int | None,
     no_pretrained: bool,
     schema_version: str | None,
+    run_name: str | None,
     python_cmd: list[str] | None,
     mlflow_experiment: str,
     mlflow_tracking_uri: str | None,
@@ -102,6 +103,8 @@ def _make_cmd(
         cmd += ["--no-pretrained"]
     if schema_version:
         cmd += ["--schema-version", schema_version]
+    if run_name:
+        cmd += ["--run-name", run_name]
     if mlflow_tracking_uri:
         cmd += ["--mlflow-tracking-uri", mlflow_tracking_uri]
     return cmd, log_path, out_dir
@@ -166,6 +169,7 @@ def run_all(
     max_steps: int | None,
     no_pretrained: bool,
     schema_version: str | None,
+    run_name: str | None,
     max_parallel: int,
     python_cmd: list[str] | None,
     mlflow_experiment: str,
@@ -184,7 +188,7 @@ def run_all(
             teacher_dir, student_name, teachers_root, data_root, out_root,
             epochs=epochs, batch_size=batch_size, temperature=temperature, alpha=alpha,
             max_steps=max_steps, no_pretrained=no_pretrained, schema_version=schema_version,
-            python_cmd=python_cmd,
+            run_name=run_name, python_cmd=python_cmd,
             mlflow_experiment=mlflow_experiment, mlflow_tracking_uri=mlflow_tracking_uri,
         )
         queue.append((student_name, cmd, log_path))
@@ -288,6 +292,9 @@ def main() -> None:
     ap.add_argument("--export", action="store_true", help="export each student to INT8 ONNX after distillation")
     ap.add_argument("--schema-version", default=None, metavar="VERSION",
                     help="label schema version, e.g. 'v2'. Must match the teachers (the v2 winners use 'v2').")
+    ap.add_argument("--run-name", default=None, metavar="TAG",
+                    help="version tag — prefixes MLflow run names + stored in meta.json. "
+                         "Tip: also set --out-root to a versioned path so disk artifacts don't clobber.")
     ap.add_argument("--python", default=None, metavar="CMD", help="Python interpreter, e.g. 'python3' (default: uv run --extra ml python)")
     ap.add_argument("--no-pretrained", action="store_true", help="skip backbone download (smoke test only)")
     ap.add_argument("--mlflow-experiment", default="vi-smart-routing")
@@ -323,7 +330,7 @@ def main() -> None:
         pairs, teachers_root, data_root, out_root,
         epochs=args.epochs, batch_size=args.batch_size, temperature=args.temperature,
         alpha=args.alpha, max_steps=args.max_steps, no_pretrained=args.no_pretrained,
-        schema_version=args.schema_version,
+        schema_version=args.schema_version, run_name=args.run_name,
         max_parallel=args.max_parallel, python_cmd=python_cmd,
         mlflow_experiment=args.mlflow_experiment, mlflow_tracking_uri=args.mlflow_tracking_uri,
     )

@@ -89,6 +89,7 @@ def distill(
     pretrained: bool = True,
     max_steps: int | None = None,
     schema_version: str | None = None,
+    run_name: str | None = None,
     mlflow_experiment: str = "vi-smart-routing",
     mlflow_tracking_uri: str | None = None,
 ) -> dict[str, Any]:
@@ -101,7 +102,11 @@ def distill(
         if mlflow_tracking_uri:
             mlflow.set_tracking_uri(mlflow_tracking_uri)
         mlflow.set_experiment(mlflow_experiment)
-        _mlflow_run = mlflow.start_run(run_name=f"{student_name}-distill")
+        # Version the run so iterations don't blur together in the MLflow UI.
+        mlflow_label = f"{run_name}/{student_name}-distill" if run_name else f"{student_name}-distill"
+        _mlflow_run = mlflow.start_run(run_name=mlflow_label)
+        if run_name:
+            mlflow.set_tag("pipeline_run", run_name)
     else:
         _mlflow_run = None
 
@@ -259,6 +264,7 @@ def distill(
         "backbone": student_spec.backbone,
         "max_tokens": student_spec.max_tokens,
         "schema_version": schema_version or "default",
+        "run_name": run_name,
         "distilled_from": str(teacher_dir),
         "teacher_backbone": teacher.spec.backbone,
         "temperature": temperature,
@@ -306,6 +312,9 @@ def main() -> None:
     ap.add_argument("--schema-version", default=None,
                     help="label schema version, e.g. 'v2' → configs/schemas/v2.yaml. "
                          "Must match the teacher's schema (v2 teachers have 6-class heads).")
+    ap.add_argument("--run-name", default=None,
+                    help="version tag for this run — prefixes the MLflow run name and is "
+                         "stored in meta.json so iterations stay distinguishable.")
     ap.add_argument("--mlflow-experiment", default="vi-smart-routing")
     ap.add_argument("--mlflow-tracking-uri", default=None)
     args = ap.parse_args()
@@ -322,6 +331,7 @@ def main() -> None:
         max_steps=args.max_steps,
         pretrained=not args.no_pretrained,
         schema_version=args.schema_version,
+        run_name=args.run_name,
         mlflow_experiment=args.mlflow_experiment,
         mlflow_tracking_uri=args.mlflow_tracking_uri,
     )

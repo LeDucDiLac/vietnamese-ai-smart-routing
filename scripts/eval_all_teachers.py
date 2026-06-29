@@ -74,6 +74,7 @@ def _log_to_mlflow(
     out_dir: Path,
     mlflow_experiment: str,
     mlflow_tracking_uri: str | None,
+    run_tag: str | None = None,
 ) -> None:
     if not _MLFLOW:
         return
@@ -81,9 +82,12 @@ def _log_to_mlflow(
         mlflow.set_tracking_uri(mlflow_tracking_uri)
     mlflow.set_experiment(mlflow_experiment)
 
-    with mlflow.start_run(run_name=f"{model_name}-eval"):
+    label = f"{run_tag}/{model_name}-eval" if run_tag else f"{model_name}-eval"
+    with mlflow.start_run(run_name=label):
         mlflow.log_param("model_name", model_name)
         mlflow.log_param("eval_type", "routing_simulation")
+        if run_tag:
+            mlflow.set_tag("pipeline_run", run_tag)
 
         kpis = _kpis_from_logs(result.get("eval_logs", {}))
         logs_metrics = {
@@ -122,6 +126,7 @@ def run_eval(
     schema_version: str | None = None,
     mlflow_experiment: str = "vi-smart-routing",
     mlflow_tracking_uri: str | None = None,
+    run_tag: str | None = None,
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     result: dict = {"model_name": model_name}
@@ -176,7 +181,7 @@ def run_eval(
             result["eval_router"] = json.loads(router_report.read_text())
 
     result["elapsed_s"] = time.time() - t0
-    _log_to_mlflow(model_name, result, out_dir, mlflow_experiment, mlflow_tracking_uri)
+    _log_to_mlflow(model_name, result, out_dir, mlflow_experiment, mlflow_tracking_uri, run_tag=run_tag)
     return result
 
 
@@ -286,7 +291,8 @@ def main() -> None:
         r = run_eval(model_name, ckpt_dir, out_dir, args.csv, args.testset, python_cmd, env,
                      schema_version=args.schema_version,
                      mlflow_experiment=args.mlflow_experiment,
-                     mlflow_tracking_uri=args.mlflow_tracking_uri)
+                     mlflow_tracking_uri=args.mlflow_tracking_uri,
+                     run_tag=run_tag)
         results.append(r)
         print()
 

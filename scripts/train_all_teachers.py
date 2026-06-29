@@ -88,6 +88,9 @@ def _make_cmd(
     python_cmd: list[str] | None = None,
     gradient_checkpointing: bool = False,
     use_adafactor: bool = False,
+    run_name: str | None = None,
+    mlflow_experiment: str = "vi-smart-routing",
+    mlflow_tracking_uri: str | None = None,
 ) -> tuple[list[str], Path, Path]:
     out_dir = out_root / model_name
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +115,8 @@ def _make_cmd(
         cmd += ["--gradient-checkpointing"]
     if use_adafactor:
         cmd += ["--adafactor"]
+    if run_name:
+        cmd += ["--run-name", run_name]
     if mlflow_experiment:
         cmd += ["--mlflow-experiment", mlflow_experiment]
     if mlflow_tracking_uri:
@@ -157,6 +162,7 @@ def run_all(
     python_cmd: list[str] | None = None,
     gradient_checkpointing: bool = False,
     use_adafactor: bool = False,
+    run_name: str | None = None,
     mlflow_experiment: str = "vi-smart-routing",
     mlflow_tracking_uri: str | None = None,
 ) -> list[dict]:
@@ -168,7 +174,7 @@ def run_all(
     env = _build_env()
     # Pre-build all commands
     jobs = [
-        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained, python_cmd, gradient_checkpointing, use_adafactor, mlflow_experiment, mlflow_tracking_uri))
+        (m, *_make_cmd(m, data_root, out_root, epochs, batch_size, lr, max_steps, schema_version, no_pretrained, python_cmd, gradient_checkpointing, use_adafactor, run_name, mlflow_experiment, mlflow_tracking_uri))
         for m in models
     ]
     queue = list(jobs)
@@ -304,6 +310,10 @@ def main() -> None:
                     help="enable gradient checkpointing (halves activation memory, use for large models like bgem3)")
     ap.add_argument("--adafactor", action="store_true",
                     help="use Adafactor optimizer (~10x less optimizer memory than AdamW)")
+    ap.add_argument("--run-name", default=None, metavar="TAG",
+                    help="version tag — prefixes MLflow run names + stored in meta.json. "
+                         "Tip: also set --out-root to a versioned path (e.g. runs/teachers/<TAG>) "
+                         "so checkpoints don't clobber across retrains.")
     ap.add_argument("--mlflow-experiment", default="vi-smart-routing",
                     help="MLflow experiment name (default: vi-smart-routing)")
     ap.add_argument("--mlflow-tracking-uri", default=None,
@@ -346,6 +356,7 @@ def main() -> None:
         python_cmd=python_cmd,
         gradient_checkpointing=args.gradient_checkpointing,
         use_adafactor=args.adafactor,
+        run_name=args.run_name,
         mlflow_experiment=args.mlflow_experiment,
         mlflow_tracking_uri=args.mlflow_tracking_uri,
     )

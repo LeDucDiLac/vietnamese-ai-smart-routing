@@ -157,14 +157,18 @@ def _parity(student_meta: dict, teacher_meta: dict) -> dict:
     }
 
 
-def _log_to_mlflow(student: str, result: dict, experiment: str, tracking_uri: str | None) -> None:
+def _log_to_mlflow(student: str, result: dict, experiment: str, tracking_uri: str | None,
+                   run_tag: str | None = None) -> None:
     if not _MLFLOW:
         return
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment)
-    with mlflow.start_run(run_name=f"{student}-eval"):
+    label = f"{run_tag}/{student}-eval" if run_tag else f"{student}-eval"
+    with mlflow.start_run(run_name=label):
         mlflow.log_param("model_name", student)
+        if run_tag:
+            mlflow.set_tag("pipeline_run", run_tag)
         metrics: dict[str, float] = {}
         onnx = result.get("onnx") or {}
         torch_r = result.get("torch") or {}
@@ -198,6 +202,8 @@ def run_eval(
     schema_version: str | None,
     experiment: str,
     tracking_uri: str | None,
+    run_tag: str | None = None,
+    log_mlflow: bool = True,
 ) -> dict:
     result: dict = {"model_name": student}
     ckpt_dir = students_root / student
@@ -249,7 +255,8 @@ def run_eval(
     result["parity"] = _parity(student_meta, teacher_meta)
 
     result["elapsed_s"] = time.time() - t0
-    _log_to_mlflow(student, result, experiment, tracking_uri)
+    if log_mlflow:
+        _log_to_mlflow(student, result, experiment, tracking_uri, run_tag=run_tag)
     return result
 
 
@@ -318,6 +325,8 @@ def main() -> None:
     ap.add_argument("--schema-version", default=None, metavar="VERSION")
     ap.add_argument("--mlflow-experiment", default="vi-smart-routing")
     ap.add_argument("--mlflow-tracking-uri", default=None)
+    ap.add_argument("--no-mlflow", action="store_true",
+                    help="skip MLflow logging (for an aggregation-only comparison pass)")
     args = ap.parse_args()
 
     students_root = Path(args.students_root)
@@ -348,6 +357,7 @@ def main() -> None:
             student, teacher, students_root, teachers_root, out_dir, args.testset, args.csv,
             python_cmd, env, schema_version=args.schema_version,
             experiment=args.mlflow_experiment, tracking_uri=args.mlflow_tracking_uri,
+            run_tag=run_tag, log_mlflow=not args.no_mlflow,
         )
         results.append(r)
         print()

@@ -320,6 +320,7 @@ def train(
     schema_version: str | None = None,
     gradient_checkpointing: bool = False,
     use_adafactor: bool = False,
+    run_name: str | None = None,
     mlflow_experiment: str = "vi-smart-routing",
     mlflow_tracking_uri: str | None = None,
 ) -> dict[str, Any]:
@@ -332,7 +333,11 @@ def train(
         if mlflow_tracking_uri:
             mlflow.set_tracking_uri(mlflow_tracking_uri)
         mlflow.set_experiment(mlflow_experiment)
-        _mlflow_run = mlflow.start_run(run_name=model_name)
+        # Version the run so retrains don't blur together in the MLflow UI.
+        mlflow_label = f"{run_name}/{model_name}" if run_name else model_name
+        _mlflow_run = mlflow.start_run(run_name=mlflow_label)
+        if run_name:
+            mlflow.set_tag("pipeline_run", run_name)
     else:
         _mlflow_run = None
 
@@ -551,6 +556,8 @@ def train(
         "model_name": model_name,
         "backbone": spec.backbone,
         "max_tokens": spec.max_tokens,
+        "schema_version": schema_version or "default",
+        "run_name": run_name,
         "epochs": epochs,
         "steps": step,
         "final_loss": history[-1]["loss"] if history else math.nan,
@@ -614,6 +621,9 @@ def main() -> None:
         action="store_true",
         help="use Adafactor optimizer instead of AdamW (~10x less optimizer memory, useful when GPU is near capacity)",
     )
+    ap.add_argument("--run-name", default=None,
+                    help="version tag for this run — prefixes the MLflow run name and is "
+                         "stored in meta.json so retrains stay distinguishable.")
     ap.add_argument("--mlflow-experiment", default="vi-smart-routing",
                     help="MLflow experiment name (default: vi-smart-routing)")
     ap.add_argument("--mlflow-tracking-uri", default=None,
@@ -638,6 +648,7 @@ def main() -> None:
         schema_version=args.schema_version,
         gradient_checkpointing=args.gradient_checkpointing,
         use_adafactor=args.adafactor,
+        run_name=args.run_name,
         mlflow_experiment=args.mlflow_experiment,
         mlflow_tracking_uri=args.mlflow_tracking_uri,
     )
