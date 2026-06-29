@@ -31,7 +31,13 @@ export VI_ROUTER_REPO_ROOT="$REPO"
 
 # ── config (override via env) ────────────────────────────────────────────────
 PYTHON="${PYTHON:-uv run --extra ml python}"
-DATA_ROOT="${DATA_ROOT:-data/processed/v2}"      # v2 teachers ⇒ v2 data
+# v2 dataset dir differs by machine (data/v2 on the H200, data/processed/v2 locally).
+if [[ -z "${DATA_ROOT:-}" ]]; then
+  for cand in data/v2 data/processed/v2; do
+    if [[ -f "$cand/train.jsonl" ]]; then DATA_ROOT="$cand"; break; fi
+  done
+  DATA_ROOT="${DATA_ROOT:-data/v2}"
+fi
 TEACHERS_ROOT="${TEACHERS_ROOT:-runs/teachers}"
 OUT_ROOT="${OUT_ROOT:-runs/students}"
 RUN="${RUN:-$(date +%Y%m%d-%H%M%S)}"             # version id for this iteration
@@ -46,6 +52,11 @@ CSV="${CSV:-data/eval/intern_data.csv}"          # production logs
 TESTSET="${TESTSET:-data/eval/routing_testset.jsonl}"
 MLFLOW_EXP="${MLFLOW_EXP:-vi-smart-routing}"
 MLFLOW_URI="${MLFLOW_URI:-$REPO/mlruns}"
+
+if [[ ! -f "$DATA_ROOT/train.jsonl" ]]; then
+  echo "ERROR: no train.jsonl under DATA_ROOT='$DATA_ROOT'. Set DATA_ROOT=<dir with train/val/test.jsonl>." >&2
+  exit 1
+fi
 
 RUN_DIR="$OUT_ROOT/$RUN"                          # all artifacts for this run live here
 mkdir -p "$RUN_DIR"
