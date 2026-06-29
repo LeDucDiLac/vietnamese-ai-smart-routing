@@ -56,7 +56,8 @@ def export(
     model = CustomModel(spec, schema, complexity, pretrained=False)
     state = torch.load(checkpoint, map_location="cpu")
     model.load_state_dict(state)
-    model.eval()
+    model.float()  # backbone (e.g. Granite) may instantiate in BF16; force fp32 so
+    model.eval()   # the legacy tracer doesn't hit "BFloat16 vs Float" dtype errors
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -83,6 +84,12 @@ def export(
         },
         opset_version=opset,
         do_constant_folding=True,
+        # Force the legacy TorchScript exporter. torch>=2.9 defaults to the dynamo
+        # exporter, which (a) needs the extra `onnxscript` package and (b) emits an
+        # opset-18 graph (Split/num_outputs + bf16) that ONNX Runtime's quantizer
+        # and loader reject. The legacy path needs no extra deps and produces a
+        # clean opset-17 graph that quantizes to INT8 and loads everywhere.
+        dynamo=False,
     )
 
     artifacts = {"fp32": fp32_path.as_posix()}
