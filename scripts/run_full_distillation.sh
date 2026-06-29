@@ -50,6 +50,8 @@ MLFLOW_URI="${MLFLOW_URI:-$REPO/mlruns}"
 RUN_DIR="$OUT_ROOT/$RUN"                          # all artifacts for this run live here
 mkdir -p "$RUN_DIR"
 export MLFLOW_TRACKING_URI="$MLFLOW_URI"
+# Newer MLflow gates the ./mlruns file store behind this opt-out; we use file store.
+export MLFLOW_ALLOW_FILE_STORE=true
 # Tee everything into a versioned log (works under nohup too).
 exec > >(tee -a "$RUN_DIR/pipeline.log") 2>&1
 
