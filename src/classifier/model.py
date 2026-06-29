@@ -94,6 +94,12 @@ class CustomModel(nn.Module):
         self.complexity = complexity
 
         auto_cfg = AutoConfig.from_pretrained(spec.backbone)
+        # ModernBERT backbones (mmBERT, Granite-r2) torch.compile their MLP, which
+        # allocates fresh inductor workspace at eval time (and recompiles per shape)
+        # — enough to OOM on a busy/shared GPU mid-run. Run them eager instead: same
+        # math, flat memory, no recompilation. No-op for non-ModernBERT backbones.
+        if hasattr(auto_cfg, "reference_compile"):
+            auto_cfg.reference_compile = False
         if pretrained:
             # transformers >= 4.47 blocks torch.load when torch < 2.6 (CVE-2025-32434).
             # P100/K80 GPUs require torch 2.3.x (sm_60 dropped in 2.6+), so we patch
@@ -103,7 +109,7 @@ class CustomModel(nn.Module):
                 _tu.check_torch_load_is_safe = lambda: None
             except Exception:
                 pass
-            self.backbone = AutoModel.from_pretrained(spec.backbone)
+            self.backbone = AutoModel.from_pretrained(spec.backbone, config=auto_cfg)
         else:
             # build from config only — fast, weightless; for unit tests / shape checks
             self.backbone = AutoModel.from_config(auto_cfg)
