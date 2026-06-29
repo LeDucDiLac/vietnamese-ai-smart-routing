@@ -450,10 +450,18 @@ def vi_router_scenario(
         return None, 0.0
 
     prompts = [r.prompt_text or "" for r in records]
-    t0 = time.perf_counter()
-    preds = clf.predict(prompts)
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    mean_ms = elapsed_ms / len(records) if records else 0.0
+    # Batch inference — running all ~5k prompts in one predict() builds a huge
+    # activation tensor and OOMs; it also makes the latency a single giant-batch
+    # number rather than a per-query mean.
+    batch_size = 32
+    preds: list[dict] = []
+    total_ms = 0.0
+    for start in range(0, len(prompts), batch_size):
+        batch = prompts[start : start + batch_size]
+        t0 = time.perf_counter()
+        preds.extend(clf.predict(batch))
+        total_ms += (time.perf_counter() - t0) * 1000.0
+    mean_ms = total_ms / len(records) if records else 0.0
 
     tiers = [tier_for_complexity(p["prompt_complexity_score"]) for p in preds]
     return Scenario("vi-router", tiers), mean_ms

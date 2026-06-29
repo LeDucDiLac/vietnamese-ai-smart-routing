@@ -127,11 +127,15 @@ def _run_eval_logs(
     if not report.exists():
         return None
     scenarios = json.loads(report.read_text()).get("scenarios", [])
-    # Pick the vi-router scenario (the real classifier), not baseline/heuristic.
+    # Return the vi-router scenario (the real classifier). If it's absent the
+    # classifier failed to load in eval_logs — warn instead of silently reporting
+    # the heuristic scenario's 0.00 ms latency.
     for s in scenarios:
         if s.get("scenario") == "vi-router":
             return s
-    return scenarios[-1] if scenarios else None
+    print("    [warn] eval_logs produced no 'vi-router' scenario — classifier "
+          "failed to load; logs KPIs unavailable", flush=True)
+    return None
 
 
 def _parity(student_meta: dict, teacher_meta: dict) -> dict:

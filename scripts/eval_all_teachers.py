@@ -186,9 +186,17 @@ def run_eval(
 
 
 def _kpis_from_logs(report: dict) -> dict:
-    """Extract KPI dict from eval_logs.json — router scenario is scenarios[0]."""
+    """Extract the vi-router classifier's KPIs from eval_logs.json.
+
+    scenarios = [baseline, heuristic, vi-router]; only the vi-router scenario
+    carries the real classifier latency + cost/quality. (Earlier this returned
+    scenarios[0] = baseline, which is why router latency showed as 0.00 ms.)
+    """
     scenarios = report.get("scenarios", [])
-    return scenarios[0] if scenarios else {}
+    for s in scenarios:
+        if s.get("scenario") == "vi-router":
+            return s
+    return {}
 
 
 def _print_logs_summary(model_name: str, report: dict) -> None:

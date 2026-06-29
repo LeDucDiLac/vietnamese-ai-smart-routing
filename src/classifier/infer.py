@@ -85,7 +85,7 @@ class TorchClassifier:
     def __init__(
         self,
         checkpoint_dir: str | Path,
-        model_size: str = "vi-router-quality",
+        model_size: str | None = None,
         schema_version: str | None = None,
         device: str | None = None,
     ):
@@ -99,6 +99,15 @@ class TorchClassifier:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
+
+        # Resolve the backbone: explicit arg > meta.json model_name > legacy default.
+        # Without this, loading a non-mDeBERTa checkpoint (e.g. a Granite/MiniLM
+        # student) builds the wrong architecture and load_state_dict fails.
+        if model_size is None:
+            meta_path = Path(checkpoint_dir) / "meta.json"
+            if meta_path.exists():
+                model_size = json.loads(meta_path.read_text()).get("model_name")
+            model_size = model_size or "vi-router-quality"
 
         self.schema, self.complexity = _schema_from_meta(Path(checkpoint_dir), schema_version)
         spec = ModelSpec.from_config(load_model_configs()[model_size])
