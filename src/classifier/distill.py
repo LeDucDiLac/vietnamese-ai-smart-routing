@@ -136,11 +136,14 @@ def distill(
     dl = DataLoader(ds, batch_size=batch_size, shuffle=True, collate_fn=dual_collate)
 
     # Student-tokenized val/test loaders for parity metrics (reuse train.evaluate).
+    # Cap the eval batch so the no-grad eval forward stays inside the training
+    # footprint and never has to grow GPU memory (which OOMs on a contended GPU).
+    eval_batch_size = max(1, min(batch_size, 16))
     val_path = data_dir / "val.jsonl"
     val_dl: DataLoader | None = None
     if val_path.exists():
         val_ds = PromptDataset(val_path, schema)
-        val_dl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=student_collate)
+        val_dl = DataLoader(val_ds, batch_size=eval_batch_size, shuffle=False, collate_fn=student_collate)
 
     optimizer = torch.optim.AdamW(student.parameters(), lr=lr)
     hard_ce = nn.CrossEntropyLoss()
@@ -254,7 +257,7 @@ def distill(
     test_path = data_dir / "test.jsonl"
     if test_path.exists():
         test_ds = PromptDataset(test_path, schema)
-        test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False, collate_fn=student_collate)
+        test_dl = DataLoader(test_ds, batch_size=eval_batch_size, shuffle=False, collate_fn=student_collate)
         test_metrics = {f"test_{k}": v for k, v in evaluate(student, test_dl, schema, device).items()}
 
     torch.save(student.state_dict(), out_dir / "model.pt")
