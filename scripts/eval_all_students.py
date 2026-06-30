@@ -178,8 +178,8 @@ def _log_to_mlflow(student: str, result: dict, experiment: str, tracking_uri: st
         torch_r = result.get("torch") or {}
         logs = result.get("eval_logs") or {}
         for src, r in (("onnx", onnx), ("torch", torch_r)):
-            for k in ("router_latency_ms", "cost_saving_pct", "quality_loss_pct",
-                      "latency_reduction_pct", "avg_acc", "gap_to_oracle", "pgr"):
+            for k in ("router_latency_ms", "router_latency_p95_ms", "cost_saving_pct",
+                      "quality_loss_pct", "latency_reduction_pct", "avg_acc", "gap_to_oracle", "pgr"):
                 if r.get(k) is not None:
                     metrics[f"{src}_{k}"] = float(r[k])
         for k in ("cost_saving_pct", "quality_loss_pct", "latency_reduction_pct", "router_latency_ms"):

@@ -182,6 +182,35 @@ def run_inference(
     return predictions, mean_ms
 
 
+def measure_latency(
+    clf,
+    prompts: list[str],
+    warmup: int = 5,
+    max_samples: int = 200,
+) -> tuple[float, float, float]:
+    """Single-request (batch=1) serving latency → (p50, p95, mean) in ms.
+
+    This is the SLA-relevant number: a real per-query latency with a warmup to
+    exclude one-off init (ONNX graph optimization, CUDA kernel/cuDNN autotune,
+    tokenizer warmup). The batched mean from run_inference() is throughput, not
+    per-request latency, and is inflated on a busy/shared CPU.
+    """
+    sample = [p for p in prompts if p][:max_samples]
+    if not sample:
+        return 0.0, 0.0, 0.0
+    for i in range(warmup):
+        clf.predict([sample[i % len(sample)]])
+    times: list[float] = []
+    for p in sample:
+        t0 = time.perf_counter()
+        clf.predict([p])
+        times.append((time.perf_counter() - t0) * 1000.0)
+    times.sort()
+    p50 = times[len(times) // 2]
+    p95 = times[min(int(0.95 * len(times)), len(times) - 1)]
+    return p50, p95, sum(times) / len(times)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Metric computation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -194,7 +223,8 @@ class EvalResult:
     n_confirmed:        int
 
     # ── Industrial KPIs ──────────────────────────────────────────────────────
-    router_latency_ms:      float   # per-query  (target ≤ 50 ms)
+    router_latency_ms:      float   # per-query p50, batch=1 warmup'd  (target ≤ 50 ms)
+    router_latency_p95_ms:  float   # per-query p95, batch=1 warmup'd
     cost_saving_pct:        float   # vs always-large  (target ≥ 30 %)
     latency_reduction_pct:  float   # for queries sent below large  (target ≥ 20 %)
     quality_loss_pct:       float   # vs always-large  (target ≤ 3 %)
@@ -259,7 +289,8 @@ def compute_eval(
     predicted:  list[str],
     label:      str,
     model_name: str,
-    latency_ms: float,
+    latency_p50_ms: float,
+    latency_p95_ms: float,
 ) -> EvalResult:
     n = len(rows)
     assert len(predicted) == n
@@ -360,7 +391,8 @@ def compute_eval(
         model_name=model_name,
         n_total=n,
         n_confirmed=len(confirmed_idx),
-        router_latency_ms=latency_ms,
+        router_latency_ms=latency_p50_ms,
+        router_latency_p95_ms=latency_p95_ms,
         cost_saving_pct=cost_saving_pct,
         latency_reduction_pct=lat_red_pct,
         quality_loss_pct=quality_loss_pct,
@@ -418,7 +450,9 @@ def print_report(results: list[EvalResult]) -> None:
             f"{t}:{res.predicted_dist.get(t,0)}" for t in TIERS))
 
         print(f"\n  {BOLD}Industrial KPIs  (problem statement §3){RESET}")
-        print(f"  router latency  : {_kpi(res.router_latency_ms, 50,  higher_better=False, unit=' ms')}")
+        print(f"  router latency  : {_kpi(res.router_latency_ms, 50,  higher_better=False, unit=' ms')}"
+              f"  {DIM}p50, batch=1{RESET}")
+        print(f"  router p95      : {res.router_latency_p95_ms:.1f} ms")
         print(f"  cost saving     : {_kpi(res.cost_saving_pct,   30,  higher_better=True)}")
         print(f"  latency reduc.  : {_kpi(res.latency_reduction_pct, 20, higher_better=True)}")
         print(f"  quality loss    : {_kpi(res.quality_loss_pct,  3,   higher_better=False)}")
@@ -561,11 +595,13 @@ def main() -> None:
         thresholds = tuple(clf.complexity.tier_thresholds) if hasattr(clf, "complexity") else (0.35, 0.65)
         print(f"  Tier thresholds: small<{thresholds[0]}, mid<{thresholds[1]}, large≥{thresholds[1]}")
         print(f"  Running inference on {len(rows):,} prompts (batch={args.batch_size}) …")
-        predicted, lat_ms = run_inference(clf, rows, batch_size=args.batch_size,
-                                          tier_thresholds=thresholds)
-        print(f"  Done — {lat_ms:.1f} ms / query")
+        predicted, _batch_ms = run_inference(clf, rows, batch_size=args.batch_size,
+                                             tier_thresholds=thresholds)
+        # SLA latency: single-request (batch=1) with warmup, p50/p95.
+        p50, p95, _mean = measure_latency(clf, [r.prompt_text or "" for r in rows])
+        print(f"  Latency (batch=1, warmup): p50={p50:.1f} ms  p95={p95:.1f} ms")
 
-        res = compute_eval(rows, predicted, label, meta.get("model_name", label), lat_ms)
+        res = compute_eval(rows, predicted, label, meta.get("model_name", label), p50, p95)
         results.append(res)
 
     if not results:
