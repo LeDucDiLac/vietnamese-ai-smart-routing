@@ -48,6 +48,7 @@ TEMP="${TEMP:-2.0}"
 ALPHA="${ALPHA:-0.5}"
 MAX_STEPS="${MAX_STEPS:-}"                        # cap steps/student (smoke-test the wiring)
 STUDENTS="${STUDENTS:-}"                          # space-separated subset, e.g. "vi-router-fast-granite"
+SKIP_DONE="${SKIP_DONE:-}"                        # 1 = resume: skip distilling students whose model.pt exists
 CSV="${CSV:-data/eval/intern_data.csv}"          # production logs
 TESTSET="${TESTSET:-data/eval/routing_testset.jsonl}"
 MLFLOW_EXP="${MLFLOW_EXP:-vi-smart-routing}"
@@ -81,6 +82,8 @@ echo " artifacts : $RUN_DIR"
 echo " data=$DATA_ROOT  schema=$SCHEMA  epochs=$EPOCHS  batch=$BATCH"
 echo " MLflow    : experiment=$MLFLOW_EXP  uri=$MLFLOW_URI  (tag pipeline_run=$RUN)"
 echo " python    : $PYTHON"
+[[ -n "$STUDENTS" ]] && echo " students  : $STUDENTS"
+[[ "$SKIP_DONE" == "1" ]] && echo " resume    : SKIP_DONE=1 (reuse existing checkpoints)"
 echo "=================================================================="
 
 for pair in "${PAIRS[@]}"; do
@@ -96,16 +99,21 @@ for pair in "${PAIRS[@]}"; do
     echo; echo "### SKIP $student — teacher checkpoint missing at $tdir"; continue
   fi
 
-  echo; echo "##################################################################"
-  echo "### [$(date)] DISTILL  $student   <-   $teacher"
-  echo "##################################################################"
-  $PYTHON -m classifier.distill \
-    --teacher "$tdir" --out "$sdir" --student "$student" \
-    --data "$DATA_ROOT" --schema-version "$SCHEMA" \
-    --epochs "$EPOCHS" --batch-size "$BATCH" \
-    --temperature "$TEMP" --alpha "$ALPHA" \
-    --run-name "$RUN" ${MAX_STEPS:+--max-steps "$MAX_STEPS"} \
-    --mlflow-experiment "$MLFLOW_EXP" --mlflow-tracking-uri "$MLFLOW_URI"
+  if [[ "$SKIP_DONE" == "1" && -f "$sdir/model.pt" ]]; then
+    echo; echo "### [$(date)] SKIP DISTILL  $student — checkpoint already exists "
+    echo "###            ($sdir/model.pt); SKIP_DONE=1 → reuse it, re-export + re-eval"
+  else
+    echo; echo "##################################################################"
+    echo "### [$(date)] DISTILL  $student   <-   $teacher"
+    echo "##################################################################"
+    $PYTHON -m classifier.distill \
+      --teacher "$tdir" --out "$sdir" --student "$student" \
+      --data "$DATA_ROOT" --schema-version "$SCHEMA" \
+      --epochs "$EPOCHS" --batch-size "$BATCH" \
+      --temperature "$TEMP" --alpha "$ALPHA" \
+      --run-name "$RUN" ${MAX_STEPS:+--max-steps "$MAX_STEPS"} \
+      --mlflow-experiment "$MLFLOW_EXP" --mlflow-tracking-uri "$MLFLOW_URI"
+  fi
 
   echo; echo "### [$(date)] EXPORT  $student  ->  INT8 ONNX"
   if ! $PYTHON -m classifier.export_onnx \
