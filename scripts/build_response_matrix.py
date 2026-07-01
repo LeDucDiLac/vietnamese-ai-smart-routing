@@ -152,6 +152,7 @@ def cmd_extract(args) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def cmd_replay(args) -> None:
     from vllm import LLM, SamplingParams  # imported lazily: only needed on the GPU box
+    from tqdm import tqdm
 
     model_id = args.model
     if model_id not in MODEL_TIER:
@@ -167,7 +168,7 @@ def cmd_replay(args) -> None:
             if l.strip():
                 done.add(json.loads(l)["prompt_id"])
     todo = [j for j in jobs if j["prompt_id"] not in done]
-    print(f"replay: {model_id} ({tier}) — {len(todo)} to do, {len(done)} already done")
+    print(f"replay: {model_id} ({tier}) — {len(todo)} to do, {len(done)} already done", flush=True)
     if not todo:
         return
 
@@ -178,28 +179,38 @@ def cmd_replay(args) -> None:
         max_model_len=args.max_model_len,
         trust_remote_code=True,
     )
-    conversations = [j["messages"] for j in todo]
-    sampling = [
-        SamplingParams(
-            temperature=float(j["sampling"]["temperature"]),
-            top_p=float(j["sampling"]["top_p"]),
-            max_tokens=int(j["sampling"]["max_tokens"]),
-        )
-        for j in todo
-    ]
-    outputs = llm.chat(conversations, sampling)
 
-    with out_path.open("a", encoding="utf-8") as out:
-        for job, res in zip(todo, outputs):
-            gen = res.outputs[0]
-            out.write(json.dumps({
-                "prompt_id": job["prompt_id"],
-                "model": model_id,
-                "tier": tier,
-                "response": gen.text,
-                "completion_tokens": len(gen.token_ids),
-            }, ensure_ascii=False) + "\n")
-    print(f"replay: wrote {len(todo)} responses → {out_path}")
+    # Generate in chunks and flush each to disk, so a crash mid-model resumes from
+    # the last completed chunk instead of losing the whole run. One tqdm bar tracks
+    # overall prompt progress (vLLM's own bar is suppressed to avoid one per chunk).
+    bs = args.batch
+    with out_path.open("a", encoding="utf-8") as out, \
+         tqdm(total=len(todo), desc=f"{tier}:{_safe_name(model_id)}",
+              unit="prompt", mininterval=15) as bar:
+        for i in range(0, len(todo), bs):
+            chunk = todo[i:i + bs]
+            conversations = [j["messages"] for j in chunk]
+            sampling = [
+                SamplingParams(
+                    temperature=float(j["sampling"]["temperature"]),
+                    top_p=float(j["sampling"]["top_p"]),
+                    max_tokens=int(j["sampling"]["max_tokens"]),
+                )
+                for j in chunk
+            ]
+            outputs = llm.chat(conversations, sampling, use_tqdm=False)
+            for job, res in zip(chunk, outputs):
+                gen = res.outputs[0]
+                out.write(json.dumps({
+                    "prompt_id": job["prompt_id"],
+                    "model": model_id,
+                    "tier": tier,
+                    "response": gen.text,
+                    "completion_tokens": len(gen.token_ids),
+                }, ensure_ascii=False) + "\n")
+            out.flush()          # checkpoint this chunk
+            bar.update(len(chunk))
+    print(f"replay: wrote {len(todo)} responses → {out_path}", flush=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -293,6 +304,8 @@ def main() -> None:
     pr.add_argument("--out", default="data/eval/matrix")
     pr.add_argument("--tp", type=int, default=1, help="tensor parallel size")
     pr.add_argument("--gpu-mem-util", type=float, default=0.90)
+    pr.add_argument("--batch", type=int, default=512,
+                    help="prompts per generation chunk; each chunk is flushed to disk (resume granularity)")
     pr.add_argument("--max-model-len", type=int, default=32768,
                     help="context window; prompts here run up to ~98k tokens — raise if you don't want the long tail truncated (costs KV-cache VRAM, tight on the 122B)")
     pr.set_defaults(func=cmd_replay)
