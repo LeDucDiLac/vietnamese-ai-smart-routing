@@ -28,6 +28,8 @@ GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
 BATCH="${BATCH:-512}"
 EAGER_FLAG=""; [ -n "${EAGER:-}" ] && EAGER_FLAG="--eager"   # EAGER=1 skips torch.compile
+export PYTHONUNBUFFERED=1   # stream vLLM's load/compile output to the log LIVE — else it
+                            # block-buffers and the multi-minute torch.compile looks frozen
 
 # HuggingFace auth: resolve HF_TOKEN (from .claude/settings.local.json / env / .env)
 # so the 30–120 GB FP8 shard downloads aren't unauthenticated + rate-limited — that
@@ -77,7 +79,7 @@ for M in "${MODELS[@]}"; do
     *122B*) MML=8192; GMU=0.96; BS=32 ;;
   esac
   echo "===== $(date +%H:%M:%S)  $M  (max_model_len=$MML gpu_mem_util=$GMU batch=$BS) ====="
-  "$PYTHON" scripts/build_response_matrix.py replay \
+  stdbuf -oL -eL "$PYTHON" -u scripts/build_response_matrix.py replay \
       --jobs "$JOBS" --model "$M" --out "$OUT" \
       --gpu-mem-util "$GMU" --max-model-len "$MML" --batch "$BS" $EAGER_FLAG \
       || echo "!!!!! $M FAILED (continuing) !!!!!"
