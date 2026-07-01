@@ -492,3 +492,28 @@ Fix for v3: normalize training targets to span [0,1] before computing loss, or a
 **R²** and **Spearman ρ** are the most useful: a model that only learns the mean gets R² = 0 and ρ = 0 exactly, regardless of label skew. A positive R² means the model explains variance beyond the mean; ρ > 0 means predictions rank-order correctly even if magnitudes are off.
 
 **Action:** Add R² and Spearman ρ to `train.py` eval output and `meta.json`. Track these instead of (or alongside) raw MAE in the backbone comparison table.
+
+---
+
+## Phase 16 — H200 Student Distillation and Four-Model Replay
+
+**Started:** 2026-07-01 18:24 UTC on a dedicated NVIDIA H200 (141 GB VRAM).
+
+Two guarded, detached handoffs were started so the pipelines do not compete with
+in-progress artifact transfers:
+
+- **Four-model replay:** waits for the existing Hugging Face prefetch, performs a
+  second resumable prefetch pass, verifies that no incomplete shards remain, then
+  launches `scripts/launch_replay.sh`. The four configured models are Qwen3 30B,
+  Qwen3.5 35B, GPT-OSS 120B, and Qwen3.5 122B. Handoff state is logged in
+  `runs/operations/replay_handoff.log`.
+- **Student distillation and evaluation:** waits until `runs/teachers.rar` is a
+  valid complete archive, extracts it, then waits for the v2 train/validation/test
+  splits and both evaluation inputs. It retries `uv sync --extra ml --frozen` on
+  transient network failures and starts `scripts/run_full_distillation.sh` only
+  while the GPU is idle. Handoff state is logged in
+  `runs/operations/distillation_handoff.log`.
+
+At this checkpoint the H200 is idle, the teacher archive and model prefetch are
+still transferring, and the v2 dataset/evaluation inputs are not yet present.
+Final student and replay metrics will be added after both pipelines finish.
