@@ -20,7 +20,7 @@ PYTHON="${PYTHON:-$REPO_DIR/.venv-replay/bin/python}"
 source "$REPO_DIR/scripts/resolve_hf_token.sh"
 
 # fast parallel downloads: install the backend if missing, then turn it on
-"$PYTHON" -c 'import hf_transfer' 2>/dev/null || { echo "installing hf_transfer…"; "$PYTHON" -m pip install -q hf_transfer; }
+"$PYTHON" -c 'import hf_transfer' 2>/dev/null || { echo "installing hf_transfer…"; uv pip install --python "$PYTHON" hf_transfer; }
 export HF_HUB_ENABLE_HF_TRANSFER=1
 
 if [ "$#" -gt 0 ]; then

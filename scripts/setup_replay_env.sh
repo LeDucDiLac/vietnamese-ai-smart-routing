@@ -22,10 +22,10 @@ echo "=== vLLM before ==="
 "$PYTHON" -c 'import vllm; print("vllm", vllm.__version__)' || echo "(vLLM not importable yet)"
 
 echo "=== upgrading vLLM ==="
-"$PYTHON" -m pip install -U vllm
+uv pip install --python "$PYTHON" -U vllm
 
 echo "=== installing hf_transfer (fast parallel HF downloads) ==="
-"$PYTHON" -m pip install -U hf_transfer
+uv pip install --python "$PYTHON" -U hf_transfer
 
 echo "=== vLLM after ==="
 "$PYTHON" -c 'import vllm; print("vllm", vllm.__version__)'
