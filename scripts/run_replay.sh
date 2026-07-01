@@ -33,7 +33,9 @@ MODELS=(
   "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8"
   "Qwen/Qwen3.5-35B-A3B-FP8"
   "openai/gpt-oss-120b"
-  "Qwen/Qwen3.5-122B-A10B-FP8"
+  # Qwen/Qwen3.5-122B-A10B-FP8 — arch Qwen3_5MoeForConditionalGeneration is
+  # unsupported by vLLM 0.24; gpt-oss-120b covers the "large" tier. Re-add if
+  # you upgrade vLLM to a build that supports it.
 )
 
 if [ ! -f "$JOBS" ]; then
