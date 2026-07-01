@@ -90,6 +90,21 @@ def _safe_name(model_id: str) -> str:
     return model_id.replace("/", "__").replace(":", "_")
 
 
+def _iter_jsonl(path: Path):
+    """Yield parsed records from a JSONL file, one per '\\n'-delimited line.
+
+    Deliberately iterates the file object (splits on '\\n' only) instead of
+    str.splitlines(), which ALSO splits on U+2028/U+2029/U+0085. Those appear in
+    scraped text and json.dumps(ensure_ascii=False) writes them raw inside string
+    values, so splitlines() would tear one record into invalid fragments.
+    """
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                yield json.loads(line)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1 — extract replay jobs
 # ─────────────────────────────────────────────────────────────────────────────
@@ -159,14 +174,13 @@ def cmd_replay(args) -> None:
         sys.exit(f"replay: {model_id!r} is not a routing candidate ({list(MODEL_TIER)})")
     tier = MODEL_TIER[model_id]
 
-    jobs = [json.loads(l) for l in Path(args.jobs).read_text(encoding="utf-8").splitlines() if l.strip()]
+    jobs = list(_iter_jsonl(Path(args.jobs)))
 
     out_path = Path(args.out) / f"responses_{_safe_name(model_id)}.jsonl"
     done: set[str] = set()
     if out_path.exists():  # resume — skip prompts already generated
-        for l in out_path.read_text(encoding="utf-8").splitlines():
-            if l.strip():
-                done.add(json.loads(l)["prompt_id"])
+        for r in _iter_jsonl(out_path):
+            done.add(r["prompt_id"])
     todo = [j for j in jobs if j["prompt_id"] not in done]
     print(f"replay: {model_id} ({tier}) — {len(todo)} to do, {len(done)} already done", flush=True)
     if not todo:
@@ -217,10 +231,7 @@ def cmd_replay(args) -> None:
 # Stage 3 — score every cell + derive the measured oracle
 # ─────────────────────────────────────────────────────────────────────────────
 def load_jobs(path: Path) -> dict[str, dict]:
-    return {
-        j["prompt_id"]: j
-        for j in (json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip())
-    }
+    return {j["prompt_id"]: j for j in _iter_jsonl(path)}
 
 
 def score_cell(content: str, completion_tokens: int, system_prompt: str) -> int:
@@ -247,10 +258,7 @@ def cmd_assemble(args) -> None:
     if not resp_files:
         sys.exit(f"assemble: no responses_*.jsonl found in {resp_dir} — run stage 2 first")
     for rf in resp_files:
-        for line in rf.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            r = json.loads(line)
+        for r in _iter_jsonl(rf):
             job = jobs.get(r["prompt_id"])
             if job is None:
                 continue
