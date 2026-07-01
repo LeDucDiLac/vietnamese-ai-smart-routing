@@ -24,6 +24,9 @@ echo "=== vLLM before ==="
 echo "=== upgrading vLLM ==="
 "$PYTHON" -m pip install -U vllm
 
+echo "=== installing hf_transfer (fast parallel HF downloads) ==="
+"$PYTHON" -m pip install -U hf_transfer
+
 echo "=== vLLM after ==="
 "$PYTHON" -c 'import vllm; print("vllm", vllm.__version__)'
 

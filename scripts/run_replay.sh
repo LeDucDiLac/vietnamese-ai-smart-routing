@@ -34,7 +34,11 @@ EAGER_FLAG=""; [ -n "${EAGER:-}" ] && EAGER_FLAG="--eager"   # EAGER=1 skips tor
 # stall looks like a freeze right after "Starting to load model". hf_transfer speeds
 # the download when the `hf_transfer` package is installed.
 source "$REPO_DIR/scripts/resolve_hf_token.sh"
-export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-0}"
+# fast parallel HF downloads when the backend is installed (prefetch_models.sh installs it)
+if [ -z "${HF_HUB_ENABLE_HF_TRANSFER:-}" ]; then
+  "$PYTHON" -c 'import hf_transfer' 2>/dev/null && HF_HUB_ENABLE_HF_TRANSFER=1 || HF_HUB_ENABLE_HF_TRANSFER=0
+fi
+export HF_HUB_ENABLE_HF_TRANSFER
 
 # Cheap→expensive; the GPU is freed between models, so a fresh vLLM starts once per
 # model and pays a full torch.compile each time (kept ON for throughput — EAGER=1 is

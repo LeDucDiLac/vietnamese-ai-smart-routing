@@ -22,6 +22,11 @@ fi
 echo "--- GPU ---"
 nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader 2>/dev/null || echo "(nvidia-smi unavailable)"
 
+# HF cache size climbs while a model is downloading (GPU still ~0 then); goes static
+# once the download finishes and vLLM starts loading weights onto the GPU.
+echo "--- HF cache (grows while downloading) ---"
+du -sh "${HF_HOME:-$HOME/.cache/huggingface}/hub" 2>/dev/null | cut -f1 || echo "(none)"
+
 echo "--- responses written (each climbs toward the job count) ---"
 wc -l "$OUT"/responses_*.jsonl 2>/dev/null || echo "(none yet)"
 
