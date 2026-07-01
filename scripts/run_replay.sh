@@ -42,6 +42,10 @@ if [ -z "${HF_HUB_ENABLE_HF_TRANSFER:-}" ]; then
 fi
 export HF_HUB_ENABLE_HF_TRANSFER
 
+# CUDA toolkit: the FP8-MoE load path JIT-compiles kernels and HANGS without nvcc
+# (the "CUDA_HOME is None" warning). Point CUDA_HOME at a toolkit if one exists.
+source "$REPO_DIR/scripts/resolve_cuda_home.sh"
+
 # Cheap→expensive; the GPU is freed between models, so a fresh vLLM starts once per
 # model and pays a full torch.compile each time (kept ON for throughput — EAGER=1 is
 # only an escape hatch and is NOT used here).
