@@ -39,6 +39,8 @@ if [ ! -f "$JOBS" ]; then
   echo "ERROR: jobs file not found: $JOBS  (run the extract stage first)" >&2
   exit 1
 fi
+mkdir -p "$OUT"
+echo $$ > "$OUT/replay.pid"        # record own PID so launch/watch/stop can find us
 echo "repo=$REPO_DIR"
 echo "jobs=$JOBS  out=$OUT  batch=$BATCH  gpu_mem_util=$GPU_MEM_UTIL  max_model_len=$MAX_MODEL_LEN"
 echo "python=$("$PYTHON" -c 'import sys; print(sys.executable)')"
