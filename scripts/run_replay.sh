@@ -27,6 +27,7 @@ PYTHON="${PYTHON:-python}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
 BATCH="${BATCH:-512}"
+EAGER_FLAG=""; [ -n "${EAGER:-}" ] && EAGER_FLAG="--eager"   # EAGER=1 skips torch.compile
 
 MODELS=(
   "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8"
@@ -49,7 +50,7 @@ for M in "${MODELS[@]}"; do
   echo "===== $(date +%H:%M:%S)  $M ====="
   "$PYTHON" scripts/build_response_matrix.py replay \
       --jobs "$JOBS" --model "$M" --out "$OUT" \
-      --gpu-mem-util "$GPU_MEM_UTIL" --max-model-len "$MAX_MODEL_LEN" --batch "$BATCH" \
+      --gpu-mem-util "$GPU_MEM_UTIL" --max-model-len "$MAX_MODEL_LEN" --batch "$BATCH" $EAGER_FLAG \
       || echo "!!!!! $M FAILED (continuing) !!!!!"
 done
 

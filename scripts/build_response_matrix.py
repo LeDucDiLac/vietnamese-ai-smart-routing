@@ -191,6 +191,7 @@ def cmd_replay(args) -> None:
         tensor_parallel_size=args.tp,
         gpu_memory_utilization=args.gpu_mem_util,
         max_model_len=args.max_model_len,
+        enforce_eager=args.eager,   # skip torch.compile/CUDA-graph capture (fast start-up)
         trust_remote_code=True,
     )
 
@@ -314,6 +315,9 @@ def main() -> None:
     pr.add_argument("--gpu-mem-util", type=float, default=0.90)
     pr.add_argument("--batch", type=int, default=512,
                     help="prompts per generation chunk; each chunk is flushed to disk (resume granularity)")
+    pr.add_argument("--eager", action="store_true",
+                    help="enforce_eager: skip torch.compile/CUDA-graph capture — starts generating in ~1 min "
+                         "instead of a multi-minute compile (slightly lower throughput; good for one-shot batch)")
     pr.add_argument("--max-model-len", type=int, default=32768,
                     help="context window; prompts here run up to ~98k tokens — raise if you don't want the long tail truncated (costs KV-cache VRAM, tight on the 122B)")
     pr.set_defaults(func=cmd_replay)
