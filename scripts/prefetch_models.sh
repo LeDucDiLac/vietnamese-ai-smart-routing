@@ -40,10 +40,19 @@ echo "HF cache: $CACHE   free: $(df -h "$CACHE" | awk 'NR==2{print $4}')"
 
 for M in "${MODELS[@]}"; do
   echo "===== $(date +%H:%M:%S)  $M ====="
-  "$PYTHON" - "$M" <<'PY' || echo "!!!!! $M failed (continuing) — check access/gating/disk above !!!!!"
+  # Retry with resume: HF's CDN drops big shards mid-stream ("peer closed connection").
+  # snapshot_download resumes from the partial file, so re-running just continues.
+  ok=0
+  for attempt in $(seq 1 8); do
+    if "$PYTHON" - "$M" <<'PY'
 import sys
 from huggingface_hub import snapshot_download
-print("cached ->", snapshot_download(sys.argv[1]))
+print("cached ->", snapshot_download(sys.argv[1], max_workers=4))
 PY
+    then ok=1; break; fi
+    echo "  attempt $attempt failed (connection drop?) — resuming in 5s…"
+    sleep 5
+  done
+  [ "$ok" = 1 ] || echo "!!!!! $M still failing after 8 attempts — check access/gating/disk above !!!!!"
 done
 echo "===== prefetch done $(date +%H:%M:%S)   cache now: $(du -sh "$CACHE/hub" 2>/dev/null | cut -f1) ====="
