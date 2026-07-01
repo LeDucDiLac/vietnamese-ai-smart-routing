@@ -38,3 +38,9 @@ if [ -n "${HF_TOKEN:-}" ]; then
 else
   echo "WARNING: no HF_TOKEN found (checked env, .claude/settings.local.json, .env) — HF downloads run unauthenticated (rate-limited; big FP8 shards can stall)." >&2
 fi
+
+# This pod hangs forever in huggingface_hub's Xet transfer backend — the download
+# threads block in file_download.py:xet_get (the Xet CAS endpoint is unreachable
+# here). That is THE cause of the "Starting to load model" freeze. Force the classic
+# HTTP/LFS download path instead.
+export HF_HUB_DISABLE_XET=1

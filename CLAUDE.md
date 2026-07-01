@@ -22,7 +22,10 @@ Replays routing candidates through vLLM to build the measured oracle. Runs detac
 - Run / monitor / stop: `bash scripts/launch_replay.sh` → `watch_replay.sh` → `stop_replay.sh`
 - `HF_TOKEN` and `CUDA_HOME` auto-resolve via `scripts/resolve_*.sh` (token from `.claude/settings.local.json`).
 
-Box gotchas: PID 1 is jupyter-lab, so killed procs become un-reaped zombies — process tracking is zombie-aware (`scripts/replay_common.sh`). No CUDA toolkit by default (`CUDA_HOME is None`) → the FP8-MoE model load **hangs** until `nvcc` is installed.
+Box gotchas:
+- **HF Xet backend hangs** here — download threads block forever in `huggingface_hub` `xet_get` (the Xet CAS endpoint is unreachable in this pod). This was the real "Starting to load model" freeze. Fixed by `HF_HUB_DISABLE_XET=1` (set in `resolve_hf_token.sh`).
+- PID 1 is jupyter-lab, so killed procs become un-reaped `<defunct>` zombies — process tracking is zombie-aware (`scripts/replay_common.sh`).
+- No CUDA toolkit by default (`CUDA_HOME is None`) → install `nvcc` via conda (`conda install -c nvidia cuda-nvcc cuda-cudart-dev`) for the FP8/deep_gemm kernels; `resolve_cuda_home.sh` then finds it.
 
 ## Autonomous Kaggle Training Loop
 
