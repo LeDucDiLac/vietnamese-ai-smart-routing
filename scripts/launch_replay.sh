@@ -15,6 +15,7 @@ OUT="${2:-data/eval/matrix}"
 LOG="$OUT/replay.log"
 PIDF="$OUT/replay.pid"
 export PYTHON="${PYTHON:-$REPO_DIR/.venv-replay/bin/python}"
+source "$REPO_DIR/scripts/replay_common.sh"
 
 # Resolve HF_TOKEN now so the detached run inherits it (kills the unauthenticated
 # download stall). Reads .claude/settings.local.json / env / .env — see the script.
@@ -22,10 +23,11 @@ source "$REPO_DIR/scripts/resolve_hf_token.sh"
 
 mkdir -p "$OUT"
 
-if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF" 2>/dev/null)" 2>/dev/null; then
+if [ -f "$PIDF" ] && is_alive "$(cat "$PIDF" 2>/dev/null)"; then
   echo "already running (PID $(cat "$PIDF")).  stop it first:  bash scripts/stop_replay.sh"
   exit 1
 fi
+rm -f "$PIDF"   # stale/zombie pidfile from a dead run — clear it so the guard is honest
 
 # setsid = new session (outlives the kernel); nohup = ignore SIGHUP; redirect to log.
 setsid nohup bash "$REPO_DIR/scripts/run_replay.sh" "$JOBS" "$OUT" > "$LOG" 2>&1 < /dev/null &

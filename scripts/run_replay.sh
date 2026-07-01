@@ -58,6 +58,7 @@ if [ ! -f "$JOBS" ]; then
 fi
 mkdir -p "$OUT"
 echo $$ > "$OUT/replay.pid"        # record own PID so launch/watch/stop can find us
+trap 'rm -f "$OUT/replay.pid"' EXIT   # clear it on normal exit/SIGTERM so no stale pidfile lingers
 echo "repo=$REPO_DIR"
 echo "jobs=$JOBS  out=$OUT  batch=$BATCH  gpu_mem_util=$GPU_MEM_UTIL  max_model_len=$MAX_MODEL_LEN"
 echo "python=$("$PYTHON" -c 'import sys; print(sys.executable)')"
