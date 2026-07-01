@@ -16,6 +16,10 @@ LOG="$OUT/replay.log"
 PIDF="$OUT/replay.pid"
 export PYTHON="${PYTHON:-$REPO_DIR/.venv-replay/bin/python}"
 
+# Resolve HF_TOKEN now so the detached run inherits it (kills the unauthenticated
+# download stall). Reads .claude/settings.local.json / env / .env — see the script.
+source "$REPO_DIR/scripts/resolve_hf_token.sh"
+
 mkdir -p "$OUT"
 
 if [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF" 2>/dev/null)" 2>/dev/null; then

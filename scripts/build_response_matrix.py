@@ -195,6 +195,32 @@ def cmd_replay(args) -> None:
         trust_remote_code=True,
     )
 
+    # Drop prompts that don't fit this model's context window. vLLM raises on an
+    # over-length prompt and that aborts the ENTIRE chunk, so a single long prompt
+    # would sink the whole run — critical for the 122B at a reduced max_model_len.
+    # A prompt the model can't fit is a genuine miss for that tier anyway.
+    try:
+        tok = llm.get_tokenizer()
+    except Exception:
+        tok = None
+
+    def _prompt_len(job) -> int:
+        if tok is not None:
+            try:
+                return len(tok.apply_chat_template(job["messages"], add_generation_prompt=True, tokenize=True))
+            except Exception:
+                pass
+        return int(job.get("prompt_tokens") or 0)  # fall back to prod's token count
+
+    n_before = len(todo)
+    todo = [j for j in todo if _prompt_len(j) < args.max_model_len]
+    if len(todo) < n_before:
+        print(f"replay: skipped {n_before - len(todo)} prompt(s) >= max_model_len={args.max_model_len} "
+              f"(won't fit — would abort the chunk)", flush=True)
+    if not todo:
+        print("replay: nothing left after length filter", flush=True)
+        return
+
     # Generate in chunks and flush each to disk, so a crash mid-model resumes from
     # the last completed chunk instead of losing the whole run. One tqdm bar tracks
     # overall prompt progress (vLLM's own bar is suppressed to avoid one per chunk).
