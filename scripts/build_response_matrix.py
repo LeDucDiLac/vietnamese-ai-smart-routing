@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import copy
 import csv
 import json
 import sys
@@ -105,6 +106,32 @@ def _iter_jsonl(path: Path):
                 yield json.loads(line)
 
 
+def sanitize_messages(messages: list) -> list:
+    """Return a text-only copy of chat messages.
+
+    LiteLLM truncates large data URLs before storing requests in the production
+    logs. Passing those partial image payloads to vLLM aborts the entire replay
+    chunk during base64 decoding. The routing candidates are text-completion
+    models, so retain text parts and omit all stored multimodal payloads.
+    """
+    sanitized = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        clean = copy.deepcopy(message)
+        content = clean.get("content")
+        if isinstance(content, list):
+            text_parts = [
+                part for part in content
+                if isinstance(part, dict)
+                and part.get("type") in (None, "text")
+                and isinstance(part.get("text"), str)
+            ]
+            clean["content"] = text_parts or ""
+        sanitized.append(clean)
+    return sanitized
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1 — extract replay jobs
 # ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +202,8 @@ def cmd_replay(args) -> None:
     tier = MODEL_TIER[model_id]
 
     jobs = list(_iter_jsonl(Path(args.jobs)))
+    for job in jobs:
+        job["messages"] = sanitize_messages(job["messages"])
 
     out_path = Path(args.out) / f"responses_{_safe_name(model_id)}.jsonl"
     done: set[str] = set()

@@ -46,6 +46,32 @@ export HF_HUB_ENABLE_HF_TRANSFER
 # (the "CUDA_HOME is None" warning). Point CUDA_HOME at a toolkit if one exists.
 source "$REPO_DIR/scripts/resolve_cuda_home.sh"
 
+# Replay is prefetched before launch. Prevent vLLM from making fragile network
+# calls while loading a model whose snapshot is already in the local cache.
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+
+# FlashInfer JIT needs ninja plus CUDA headers/libraries. uv environments do not
+# automatically prepend their bin directory when invoked by absolute path.
+PYTHON_BIN_DIR="$(dirname "$("$PYTHON" -c 'import sys; print(sys.executable)')")"
+export PATH="$PYTHON_BIN_DIR:$PATH"
+
+if [ -x /usr/bin/gcc ] && [ -x /usr/bin/g++ ]; then
+  export CC=/usr/bin/gcc
+  export CXX=/usr/bin/g++
+fi
+
+if [ -n "${CUDA_HOME:-}" ]; then
+  export LIBRARY_PATH="$CUDA_HOME/lib:$CUDA_HOME/targets/x86_64-linux/lib:${LIBRARY_PATH:-}"
+  CURAND_HEADER="$(find "$CUDA_HOME/lib" -path '*/site-packages/nvidia/curand/include/curand.h' \
+      -print -quit 2>/dev/null || true)"
+  if [ -n "$CURAND_HEADER" ]; then
+    CURAND_ROOT="$(dirname "$(dirname "$CURAND_HEADER")")"
+    export CPATH="$CURAND_ROOT/include:${CPATH:-}"
+    export LD_LIBRARY_PATH="$CURAND_ROOT/lib:${LD_LIBRARY_PATH:-}"
+  fi
+fi
+
 # Cheap→expensive; the GPU is freed between models, so a fresh vLLM starts once per
 # model and pays a full torch.compile each time (kept ON for throughput — EAGER=1 is
 # only an escape hatch and is NOT used here).
