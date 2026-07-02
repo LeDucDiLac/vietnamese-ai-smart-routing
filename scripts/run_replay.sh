@@ -67,15 +67,17 @@ if [ -n "${CUDA_HOME:-}" ]; then
   # Conda may install CUDA component headers through NVIDIA Python packages
   # instead of under CUDA_HOME/include. Add every such component root so JIT
   # kernels can find CURAND, cuBLAS, and future CUDA library headers.
-  while IFS= read -r NVIDIA_COMPONENT; do
-    [ -d "$NVIDIA_COMPONENT/include" ] && \
-      export CPATH="$NVIDIA_COMPONENT/include:${CPATH:-}"
-    [ -d "$NVIDIA_COMPONENT/lib" ] && {
-      export LIBRARY_PATH="$NVIDIA_COMPONENT/lib:${LIBRARY_PATH:-}"
-      export LD_LIBRARY_PATH="$NVIDIA_COMPONENT/lib:${LD_LIBRARY_PATH:-}"
-    }
-  done < <(find "$CUDA_HOME/lib" -path '*/site-packages/nvidia/*/include' -type d \
-      -printf '%h\n' 2>/dev/null | sort -u)
+  while IFS= read -r NVIDIA_ROOT; do
+    for NVIDIA_COMPONENT in "$NVIDIA_ROOT"/*; do
+      [ -d "$NVIDIA_COMPONENT/include" ] && \
+        export CPATH="$NVIDIA_COMPONENT/include:${CPATH:-}"
+      [ -d "$NVIDIA_COMPONENT/lib" ] && {
+        export LIBRARY_PATH="$NVIDIA_COMPONENT/lib:${LIBRARY_PATH:-}"
+        export LD_LIBRARY_PATH="$NVIDIA_COMPONENT/lib:${LD_LIBRARY_PATH:-}"
+      }
+    done
+  done < <(find "$CUDA_HOME/lib" -path '*/site-packages/nvidia' -type d \
+      -print 2>/dev/null | sort -u)
 
   # The Python cuda_runtime package has a partial header tree. Prefer the full
   # toolkit for core headers (including crt/*), while retaining component paths
