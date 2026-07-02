@@ -76,6 +76,13 @@ if [ -n "${CUDA_HOME:-}" ]; then
     }
   done < <(find "$CUDA_HOME/lib" -path '*/site-packages/nvidia/*/include' -type d \
       -printf '%h\n' 2>/dev/null | sort -u)
+
+  # The Python cuda_runtime package has a partial header tree. Prefer the full
+  # toolkit for core headers (including crt/*), while retaining component paths
+  # above for libraries not installed into the toolkit include directory.
+  if [ -d "$CUDA_HOME/targets/x86_64-linux/include" ]; then
+    export CPATH="$CUDA_HOME/targets/x86_64-linux/include:${CPATH:-}"
+  fi
 fi
 
 # Cheap→expensive; the GPU is freed between models, so a fresh vLLM starts once per
