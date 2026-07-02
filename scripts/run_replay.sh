@@ -63,13 +63,19 @@ fi
 
 if [ -n "${CUDA_HOME:-}" ]; then
   export LIBRARY_PATH="$CUDA_HOME/lib:$CUDA_HOME/targets/x86_64-linux/lib:${LIBRARY_PATH:-}"
-  CURAND_HEADER="$(find "$CUDA_HOME/lib" -path '*/site-packages/nvidia/curand/include/curand.h' \
-      -print -quit 2>/dev/null || true)"
-  if [ -n "$CURAND_HEADER" ]; then
-    CURAND_ROOT="$(dirname "$(dirname "$CURAND_HEADER")")"
-    export CPATH="$CURAND_ROOT/include:${CPATH:-}"
-    export LD_LIBRARY_PATH="$CURAND_ROOT/lib:${LD_LIBRARY_PATH:-}"
-  fi
+
+  # Conda may install CUDA component headers through NVIDIA Python packages
+  # instead of under CUDA_HOME/include. Add every such component root so JIT
+  # kernels can find CURAND, cuBLAS, and future CUDA library headers.
+  while IFS= read -r NVIDIA_COMPONENT; do
+    [ -d "$NVIDIA_COMPONENT/include" ] && \
+      export CPATH="$NVIDIA_COMPONENT/include:${CPATH:-}"
+    [ -d "$NVIDIA_COMPONENT/lib" ] && {
+      export LIBRARY_PATH="$NVIDIA_COMPONENT/lib:${LIBRARY_PATH:-}"
+      export LD_LIBRARY_PATH="$NVIDIA_COMPONENT/lib:${LD_LIBRARY_PATH:-}"
+    }
+  done < <(find "$CUDA_HOME/lib" -path '*/site-packages/nvidia/*/include' -type d \
+      -printf '%h\n' 2>/dev/null | sort -u)
 fi
 
 # Cheap→expensive; the GPU is freed between models, so a fresh vLLM starts once per
