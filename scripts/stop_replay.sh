@@ -9,7 +9,7 @@ set -u
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
-OUT="${1:-data/eval/matrix}"
+OUT="${1:-data/eval/replay-v2}"
 PIDF="$OUT/replay.pid"
 TIMEOUT="${STOP_TIMEOUT:-20}"
 source "$REPO_DIR/scripts/replay_common.sh"

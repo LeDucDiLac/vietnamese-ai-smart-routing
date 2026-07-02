@@ -4,7 +4,12 @@
 # between models), and keeps going if one model fails so you still get the rest.
 #
 # Usage (from anywhere — the script cd's to the repo root itself):
-#     bash scripts/run_replay.sh [JOBS] [OUT]
+#     bash scripts/run_replay.sh [JOBS] [OUT] [MODEL...]
+#
+# If you omit MODEL arguments, the script replays all configured candidates.
+# If you pass one or more MODEL IDs, it replays only those models in the order
+# you provide. This makes it easy to run separate replay sessions at different
+# times without editing the script.
 #
 # Override the interpreter / knobs via env vars:
 #     PYTHON=/home/leduc/ai-smart-routing/.venv/bin/python \
@@ -12,17 +17,18 @@
 #     bash scripts/run_replay.sh
 #
 # Detached run that survives disconnect (see progress in the log):
-#     nohup bash scripts/run_replay.sh > data/eval/matrix/replay.log 2>&1 &
-#     tail -f data/eval/matrix/replay.log
+#     nohup bash scripts/run_replay.sh > data/eval/replay-v2/replay.log 2>&1 &
+#     tail -f data/eval/replay-v2/replay.log
 #
-# Safe to re-run: replay skips prompt_ids already written per model.
+# Safe to re-run: each model response file is rewritten from scratch, so reruns
+# refresh stale rows instead of mixing old and new setups.
 set -u
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_DIR"
 
-JOBS="${1:-data/eval/matrix/jobs.jsonl}"
-OUT="${2:-data/eval/matrix}"
+JOBS="${1:-data/eval/replay-v2/jobs_v2.jsonl}"
+OUT="${2:-data/eval/replay-v2}"
 PYTHON="${PYTHON:-python}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
@@ -53,7 +59,7 @@ export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 
 # FlashInfer JIT needs ninja plus CUDA headers/libraries. uv environments do not
 # automatically prepend their bin directory when invoked by absolute path.
-PYTHON_BIN_DIR="$(dirname "$("$PYTHON" -c 'import sys; print(sys.executable)')")"
+PYTHON_BIN_DIR="$("$PYTHON" -c 'import os, sys; print(os.path.dirname(sys.executable))')"
 export PATH="$PYTHON_BIN_DIR:$PATH"
 
 if [ -x /usr/bin/gcc ] && [ -x /usr/bin/g++ ]; then
@@ -87,24 +93,32 @@ if [ -n "${CUDA_HOME:-}" ]; then
   fi
 fi
 
-# Cheap→expensive; the GPU is freed between models, so a fresh vLLM starts once per
-# model and pays a full torch.compile each time (kept ON for throughput — EAGER=1 is
-# only an escape hatch and is NOT used here).
+# Cheap→expensive; the GPU is freed between models, so a fresh vLLM starts once
+# per model and pays a full torch.compile each time (kept ON for throughput —
+# EAGER=1 is only an escape hatch and is NOT used here).
 # The two Qwen3.5 MoE models need a vLLM build that registers their arch
 # (Qwen3_5MoeForCausalLM / Qwen3_5MoeForConditionalGeneration); vLLM 0.24 does NOT.
 # Verify before trusting their rows:
 #   .venv-replay/bin/python -c "from vllm.model_executor.models.registry import \
 #     ModelRegistry as R; print(R.get_supported_archs())"
 # run_replay continues past a model that fails to load, so leaving them in is safe.
-MODELS=(
+DEFAULT_MODELS=(
   "Qwen/Qwen3-30B-A3B-Instruct-2507-FP8"   # small — Qwen3 MoE, works on vLLM 0.24
   "Qwen/Qwen3.5-35B-A3B-FP8"               # mid   — Qwen3.5 MoE, needs newer vLLM
-  "openai/gpt-oss-120b"                     # large — works on vLLM 0.24
+  "openai/gpt-oss-120b"                    # large — works on vLLM 0.24
   "Qwen/Qwen3.5-122B-A10B-FP8"             # large — Qwen3.5 MoE, needs newer vLLM + likely --tp 2
 )
 
+if [ "$#" -gt 2 ]; then
+  shift 2
+  MODELS=("$@")
+else
+  MODELS=("${DEFAULT_MODELS[@]}")
+fi
+
 if [ ! -f "$JOBS" ]; then
-  echo "ERROR: jobs file not found: $JOBS  (run the extract stage first)" >&2
+  echo "ERROR: jobs file not found: $JOBS" >&2
+  echo "Run: python scripts/process_replay_jobs.py" >&2
   exit 1
 fi
 mkdir -p "$OUT"
@@ -112,7 +126,8 @@ echo $$ > "$OUT/replay.pid"        # record own PID so launch/watch/stop can fin
 trap 'rm -f "$OUT/replay.pid"' EXIT   # clear it on normal exit/SIGTERM so no stale pidfile lingers
 echo "repo=$REPO_DIR"
 echo "jobs=$JOBS  out=$OUT  batch=$BATCH  gpu_mem_util=$GPU_MEM_UTIL  max_model_len=$MAX_MODEL_LEN"
-echo "python=$("$PYTHON" -c 'import sys; print(sys.executable)')"
+echo "python=$($PYTHON -c 'import sys; print(sys.executable)')"
+echo "models=${MODELS[*]}"
 
 for M in "${MODELS[@]}"; do
   # Per-model resource overrides (fall back to the globals). The 122B is ~122 GB of

@@ -32,3 +32,16 @@ def test_sanitize_messages_preserves_plain_text_and_metadata():
     ]
 
     assert sanitize_messages(messages) == messages
+
+
+def test_sanitize_messages_drops_malformed_tool_payloads():
+    messages = [
+        {"role": "system", "content": "Be concise"},
+        {"role": "tool", "content": "not valid JSON"},
+        {"role": "user", "content": "Hello"},
+    ]
+
+    assert sanitize_messages(messages) == [
+        {"role": "system", "content": "Be concise"},
+        {"role": "user", "content": "Hello"},
+    ]

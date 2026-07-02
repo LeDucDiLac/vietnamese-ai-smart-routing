@@ -7,26 +7,31 @@ complexity proxy. This script closes that gap: it replays every prompt through
 every routing candidate on a local GPU, scores each response with the SAME
 structural check as Phase 11, and derives an oracle that is 100% *measured*.
 
-Three stages (extract + assemble are CPU-only; replay needs a GPU + vLLM):
+Four stages (extract, process, and assemble are CPU-only; replay needs a GPU + vLLM):
 
   # 1. extract replay jobs from one or more logs     (CPU — run anywhere)
   python scripts/build_response_matrix.py extract \
-      --csv data/logs/*.csv --out data/eval/matrix
+      --csv data/logs/*.csv --out data/eval/replay-v1
 
-  # 2. replay one candidate model                   (H200 — once per model, resumable)
+  # 2. canonicalize + validate replay jobs          (CPU — required)
+  python scripts/process_replay_jobs.py \
+      --input data/eval/replay-v1/jobs.jsonl \
+      --output data/eval/replay-v2/jobs_v2.jsonl
+
+  # 3. replay one candidate model                   (H200 — full refresh per model)
   python scripts/build_response_matrix.py replay \
-      --jobs data/eval/matrix/jobs.jsonl \
-      --model openai/gpt-oss-120b --out data/eval/matrix
+      --jobs data/eval/replay-v2/jobs_v2.jsonl \
+      --model openai/gpt-oss-120b --out data/eval/replay-v2
 
-  # 3. score + assemble the measured oracle testset (CPU)
+  # 4. score + assemble the measured oracle testset (CPU)
   python scripts/build_response_matrix.py assemble \
-      --jobs data/eval/matrix/jobs.jsonl \
-      --responses data/eval/matrix \
-      --out data/eval/routing_testset_measured.jsonl
+      --jobs data/eval/replay-v2/jobs_v2.jsonl \
+      --responses data/eval/replay-v2 \
+      --out data/eval/replay-v2/routing_testset_measured.jsonl
 
-The stage-3 output is drop-in for eval_router.py:
+The assembled stage-4 output is drop-in for eval_router.py:
   python scripts/eval_router.py runs/quality \
-      --testset data/eval/routing_testset_measured.jsonl
+      --testset data/eval/replay-v2/routing_testset_measured.jsonl
 """
 from __future__ import annotations
 
@@ -60,6 +65,9 @@ TIER_ORDER = {"small": 0, "mid": 1, "large": 2}
 TIERS_CHEAP_FIRST = ["small", "mid", "large"]
 
 csv.field_size_limit(1 << 24)  # proxy_server_request blobs run to ~400 KB
+
+REPLAY_V1_DIR = Path("data/eval/replay-v1")
+REPLAY_V2_DIR = Path("data/eval/replay-v2")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -113,13 +121,27 @@ def sanitize_messages(messages: list) -> list:
     logs. Passing those partial image payloads to vLLM aborts the entire replay
     chunk during base64 decoding. The routing candidates are text-completion
     models, so retain text parts and omit all stored multimodal payloads.
+
+    Some agent logs also contain `tool` messages whose content is a JSON string.
+    vLLM parses those tool payloads with `json.loads`; if LiteLLM truncated the
+    stored blob, the replay aborts during prompt preprocessing. Keep valid tool
+    payloads, but drop malformed/truncated ones so a single corrupted trace does
+    not sink the whole model run.
     """
     sanitized = []
     for message in messages:
         if not isinstance(message, dict):
             continue
         clean = copy.deepcopy(message)
+        role = clean.get("role")
         content = clean.get("content")
+        if role == "tool":
+            if not isinstance(content, str):
+                continue
+            try:
+                json.loads(content)
+            except Exception:
+                continue
         if isinstance(content, list):
             text_parts = [
                 part for part in content
@@ -206,14 +228,12 @@ def cmd_replay(args) -> None:
         job["messages"] = sanitize_messages(job["messages"])
 
     out_path = Path(args.out) / f"responses_{_safe_name(model_id)}.jsonl"
-    done: set[str] = set()
-    if out_path.exists():  # resume — skip prompts already generated
-        for r in _iter_jsonl(out_path):
-            done.add(r["prompt_id"])
-    todo = [j for j in jobs if j["prompt_id"] not in done]
-    print(f"replay: {model_id} ({tier}) — {len(todo)} to do, {len(done)} already done", flush=True)
-    if not todo:
-        return
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    print(
+        f"replay: {model_id} ({tier}) — refreshing {len(jobs)} prompts "
+        f"to prevent stale rows from drifting",
+        flush=True,
+    )
 
     llm = LLM(
         model=model_id,
@@ -241,24 +261,25 @@ def cmd_replay(args) -> None:
                 pass
         return int(job.get("prompt_tokens") or 0)  # fall back to prod's token count
 
-    n_before = len(todo)
-    todo = [j for j in todo if _prompt_len(j) < args.max_model_len]
-    if len(todo) < n_before:
-        print(f"replay: skipped {n_before - len(todo)} prompt(s) >= max_model_len={args.max_model_len} "
+    n_before = len(jobs)
+    jobs = [j for j in jobs if _prompt_len(j) < args.max_model_len]
+    if len(jobs) < n_before:
+        print(f"replay: skipped {n_before - len(jobs)} prompt(s) >= max_model_len={args.max_model_len} "
               f"(won't fit — would abort the chunk)", flush=True)
-    if not todo:
+    if not jobs:
         print("replay: nothing left after length filter", flush=True)
         return
 
-    # Generate in chunks and flush each to disk, so a crash mid-model resumes from
-    # the last completed chunk instead of losing the whole run. One tqdm bar tracks
-    # overall prompt progress (vLLM's own bar is suppressed to avoid one per chunk).
+    # Generate in chunks and flush each to disk, so a crash mid-model leaves a
+    # partially refreshed file instead of stale rows from the previous setup.
+    # One tqdm bar tracks overall prompt progress (vLLM's own bar is suppressed
+    # to avoid one per chunk).
     bs = args.batch
-    with out_path.open("a", encoding="utf-8") as out, \
-         tqdm(total=len(todo), desc=f"{tier}:{_safe_name(model_id)}",
+    with out_path.open("w", encoding="utf-8") as out, \
+         tqdm(total=len(jobs), desc=f"{tier}:{_safe_name(model_id)}",
               unit="prompt", mininterval=15) as bar:
-        for i in range(0, len(todo), bs):
-            chunk = todo[i:i + bs]
+        for i in range(0, len(jobs), bs):
+            chunk = jobs[i:i + bs]
             conversations = [j["messages"] for j in chunk]
             sampling = [
                 SamplingParams(
@@ -280,7 +301,7 @@ def cmd_replay(args) -> None:
                 }, ensure_ascii=False) + "\n")
             out.flush()          # checkpoint this chunk
             bar.update(len(chunk))
-    print(f"replay: wrote {len(todo)} responses → {out_path}", flush=True)
+    print(f"replay: wrote {len(jobs)} responses → {out_path}", flush=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -359,17 +380,17 @@ def main() -> None:
     pe = sub.add_parser("extract", help="extract replay jobs from one or more LiteLLM log CSVs")
     pe.add_argument("--csv", nargs="+", default=["data/eval/intern_data.csv"],
                     help="one or more log CSVs (globs work: data/logs/*.csv); request_ids deduped across files")
-    pe.add_argument("--out", default="data/eval/matrix")
+    pe.add_argument("--out", default=str(REPLAY_V1_DIR))
     pe.set_defaults(func=cmd_extract)
 
     pr = sub.add_parser("replay", help="replay one candidate model on GPU (vLLM)")
-    pr.add_argument("--jobs", default="data/eval/matrix/jobs.jsonl")
+    pr.add_argument("--jobs", default=str(REPLAY_V2_DIR / "jobs_v2.jsonl"))
     pr.add_argument("--model", required=True)
-    pr.add_argument("--out", default="data/eval/matrix")
+    pr.add_argument("--out", default=str(REPLAY_V2_DIR))
     pr.add_argument("--tp", type=int, default=1, help="tensor parallel size")
     pr.add_argument("--gpu-mem-util", type=float, default=0.90)
     pr.add_argument("--batch", type=int, default=512,
-                    help="prompts per generation chunk; each chunk is flushed to disk (resume granularity)")
+                    help="prompts per generation chunk; each chunk is flushed to disk")
     pr.add_argument("--eager", action="store_true",
                     help="enforce_eager: skip torch.compile/CUDA-graph capture — starts generating in ~1 min "
                          "instead of a multi-minute compile (slightly lower throughput; good for one-shot batch)")
@@ -378,9 +399,9 @@ def main() -> None:
     pr.set_defaults(func=cmd_replay)
 
     pa = sub.add_parser("assemble", help="score responses + write measured oracle testset")
-    pa.add_argument("--jobs", default="data/eval/matrix/jobs.jsonl")
-    pa.add_argument("--responses", default="data/eval/matrix")
-    pa.add_argument("--out", default="data/eval/routing_testset_measured.jsonl")
+    pa.add_argument("--jobs", default=str(REPLAY_V2_DIR / "jobs_v2.jsonl"))
+    pa.add_argument("--responses", default=str(REPLAY_V2_DIR))
+    pa.add_argument("--out", default=str(REPLAY_V2_DIR / "routing_testset_measured.jsonl"))
     pa.set_defaults(func=cmd_assemble)
 
     args = ap.parse_args()
