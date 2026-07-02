@@ -517,3 +517,28 @@ in-progress artifact transfers:
 At this checkpoint the H200 is idle, the teacher archive and model prefetch are
 still transferring, and the v2 dataset/evaluation inputs are not yet present.
 Final student and replay metrics will be added after both pipelines finish.
+
+### Student distillation results
+
+The v2 dataset and teacher checkpoints were uploaded to the H200 and all three
+students were distilled concurrently for 3 epochs (4,725 steps each). The run
+completed in 30.3 minutes under `runs/students/h200-20260701-184109/`.
+
+| Student | Test macro-F1 | Test accuracy | Test complexity MAE | Test R² | Test Spearman ρ |
+|---|---:|---:|---:|---:|---:|
+| `vi-router-fast-mmbert` | **0.7306** | 0.7690 | **0.0957** | 0.5588 | **0.5218** |
+| `vi-router-fast` | 0.7266 | 0.7615 | 0.1050 | 0.5080 | 0.5035 |
+| `vi-router-fast-granite` | 0.7230 | **0.7828** | 0.0988 | **0.5606** | 0.5216 |
+
+`vi-router-fast-mmbert` is the best balanced student: it leads on macro-F1,
+complexity MAE, and rank correlation. Granite leads on top-1 accuracy and R²,
+but its lower macro-F1 indicates weaker class-balanced performance.
+
+### Replay status
+
+The first automated replay launch failed before model loading because the
+temporary prefetch-compatible `huggingface_hub` downgrade was incompatible with
+the installed Transformers version. No response rows were written. The
+environment was repaired (`huggingface_hub` 1.21.0, Transformers 5.12.1, vLLM
+0.24.0), imports were validated, and the four-model replay was relaunched at
+2026-07-02 01:29 UTC as PID 123854.
