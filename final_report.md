@@ -504,9 +504,11 @@ in-progress artifact transfers:
 
 - **Four-model replay:** waits for the existing Hugging Face prefetch, performs a
   second resumable prefetch pass, verifies that no incomplete shards remain, then
-  launches `scripts/launch_replay.sh`. The four configured models are Qwen3 30B,
-  Qwen3.5 35B, GPT-OSS 120B, and Qwen3.5 122B. Handoff state is logged in
-  `runs/operations/replay_handoff.log`.
+  launches `scripts/launch_replay.sh`. The replay inputs are versioned on disk:
+  `data/eval/replay-v1/` holds the raw extract, while `data/eval/replay-v2/`
+  holds the canonicalized jobs, per-model response files, and measured oracle
+  output. The four configured models are Qwen3 30B, Qwen3.5 35B, GPT-OSS 120B,
+  and Qwen3.5 122B. Handoff state is logged in `runs/operations/replay_handoff.log`.
 - **Student distillation and evaluation:** waits until `runs/teachers.rar` is a
   valid complete archive, extracts it, then waits for the v2 train/validation/test
   splits and both evaluation inputs. It retries `uv sync --extra ml --frozen` on

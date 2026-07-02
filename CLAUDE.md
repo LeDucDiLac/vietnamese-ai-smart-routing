@@ -17,6 +17,7 @@
 
 Replays routing candidates through vLLM to build the measured oracle. Runs detached on a remote single-H200 Jupyter box in `.venv-replay/` (uv-managed), so it survives disconnects.
 
+- Replay artifacts are versioned by path: raw extract lives in `data/eval/replay-v1/` and canonicalized jobs plus responses live in `data/eval/replay-v2/`.
 - One-time env: `bash scripts/setup_replay_env.sh` (upgrades vLLM + hf_transfer for the Qwen3.5 MoE arch).
 - Prefetch weights with visible progress: `bash scripts/prefetch_models.sh`
 - Run / monitor / stop: `bash scripts/launch_replay.sh` → `watch_replay.sh` → `stop_replay.sh`
